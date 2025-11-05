@@ -188,6 +188,7 @@ dependencies = [
  "log",
  "objc2",
  "objc2-app-kit",
+ "objc2-foundation",
  "serde",
  "thiserror 2.0.17",
  "tokio",
@@ -852,6 +853,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "900831247d2fe1a09a683278e5384cfb8c80c79fe6b166f9d14bfdde0ea1b03c"
 dependencies = [
  "bitflags",
+ "block2",
+ "libc",
  "objc2",
  "objc2-core-foundation",
 ]

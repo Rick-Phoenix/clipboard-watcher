@@ -1,5 +1,3 @@
-#[cfg(target_os = "macos")]
-use std::convert::Infallible;
 use std::{
   sync::{
     atomic::{AtomicUsize, Ordering},
@@ -10,7 +8,6 @@ use std::{
 
 use futures::channel::mpsc;
 
-#[cfg(windows)]
 use crate::error::ClipboardError;
 use crate::{
   body::{BodySenders, BodySendersDropHandle},
@@ -119,13 +116,6 @@ impl ClipboardEventListener {
       body_rx: Box::pin(rx),
       drop_handle,
     }
-  }
-}
-
-#[cfg(target_os = "macos")]
-impl Default for ClipboardEventListener {
-  fn default() -> Self {
-    ClipboardEventListener::spawn()
   }
 }
 

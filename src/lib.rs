@@ -46,8 +46,12 @@ mod driver;
 pub mod error;
 mod event_listener;
 pub(crate) mod image;
+#[cfg(target_os = "macos")]
+mod macos;
+mod observer;
 mod stream;
-mod sys;
+#[cfg(windows)]
+mod win;
 
 pub use stream::{ClipboardStream, StreamId};
 

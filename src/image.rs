@@ -57,3 +57,26 @@ pub(crate) fn file_is_image(path: &Path) -> bool {
     .extension()
     .is_some_and(|e| IMAGE_FORMATS.contains(&e.to_string_lossy().as_ref()))
 }
+
+#[cfg(target_os = "macos")]
+pub(crate) fn convert_tiff_to_png(tiff_bytes: &[u8]) -> Option<Vec<u8>> {
+  match image::load_from_memory_with_format(tiff_bytes, ImageFormat::Tiff) {
+    Ok(dynamic_image) => {
+      let mut png_buffer = Vec::new();
+      if dynamic_image
+        .write_to(&mut Cursor::new(&mut png_buffer), ImageFormat::Png)
+        .is_ok()
+      {
+        Some(png_buffer)
+      } else {
+        error!("Failed to convert tiff to png");
+
+        None
+      }
+    }
+    Err(e) => {
+      error!("Failed to convert tiff to png: {e}");
+      None
+    }
+  }
+}

@@ -1,79 +1,24 @@
-use log::debug;
-use log::error;
-use std::sync::{
-  atomic::{AtomicBool, Ordering},
-  Arc,
+use std::{
+  collections::HashMap,
+  num::NonZeroU32,
+  path::PathBuf,
+  sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+  },
+  time::Duration,
 };
-#[cfg(windows)]
-use std::{collections::HashMap, num::NonZeroU32, path::PathBuf, time::Duration};
 
-use crate::body::BodySenders;
-#[cfg(windows)]
-use crate::error::ClipboardError;
-#[cfg(windows)]
-use crate::mime_type::ImageMimeType;
-#[cfg(target_os = "macos")]
-use crate::sys::macos::OSXSys;
+use clipboard_win::{formats, Clipboard, Getter};
+use log::{debug, error};
 
-/// A trait observing clipboard change event and send data to receiver([`ClipboardStream`])
-pub(super) trait Observer {
-  fn observe(&mut self, body_senders: Arc<BodySenders>);
-}
+use crate::{
+  body::{BodySenders, ClipboardImage},
+  error::ClipboardError,
+  observer::Observer,
+  Body,
+};
 
-/// Observer for MacOS
-#[cfg(target_os = "macos")]
-pub(super) struct OSXObserver {
-  stop: Arc<AtomicBool>,
-  sys: OSXSys,
-}
-
-#[cfg(windows)]
-fn extract_clipboard_format(format_id: u32, max_size: Option<usize>) -> Option<Vec<u8>> {
-  use clipboard_win::formats;
-
-  // We check if the format is available at all
-  clipboard_win::size(format_id)
-    // Then, whether the size is within the allowed range
-    .filter(|size| max_size.is_none_or(|max| max > size.get()))
-    // Then, if the data can be read
-    .and_then(|_| clipboard_win::get(formats::RawData(format_id)).ok())
-}
-
-#[cfg(target_os = "macos")]
-mod macos {
-  impl OSXObserver {
-    pub(super) fn new(stop: Arc<AtomicBool>) -> Self {
-      OSXObserver {
-        stop,
-        sys: OSXSys::new(),
-      }
-    }
-  }
-
-  impl Observer for OSXObserver {
-    fn observe(&mut self, body_senders: Arc<BodySenders>) {
-      let mut last_count = self.sys.get_change_count();
-
-      while !self.stop.load(Ordering::Relaxed) {
-        std::thread::sleep(std::time::Duration::from_millis(200));
-        let change_count = self.sys.get_change_count();
-
-        if change_count == last_count {
-          continue;
-        }
-        last_count = change_count;
-
-        self
-          .sys
-          .get_bodies()
-          .into_iter()
-          .for_each(|body| body_senders.send_all(Ok(Arc::new(body))));
-      }
-    }
-  }
-}
-
-#[cfg(windows)]
 pub(super) struct WinObserver {
   stop: Arc<AtomicBool>,
   monitor: clipboard_win::Monitor,
@@ -86,7 +31,27 @@ pub(super) struct WinObserver {
   max_bytes: Option<usize>,
 }
 
-#[cfg(windows)]
+// To allow early exits later on, we use Err for cases when the format has been found but is over the allowed size
+// (so that other formats are not checked needlessly), and use a normal boolean to signal presence
+fn format_has_valid_size(format_id: u32, max_bytes: Option<usize>) -> Result<bool, ()> {
+  match max_bytes {
+    Some(max) => match clipboard_win::size(format_id) {
+      Some(size) => {
+        if max > size.get() {
+          Ok(true)
+        } else {
+          // Invalid side, we use an error to exit early later on
+          Err(())
+        }
+      }
+      // Format is not present at all
+      None => Ok(false),
+    },
+    // Cannot say, we try to access it directly later on
+    None => Ok(true),
+  }
+}
+
 impl WinObserver {
   pub(super) fn new(
     stop: Arc<AtomicBool>,
@@ -133,7 +98,20 @@ impl WinObserver {
     }
   }
 
-  pub(super) fn extract_image_bytes(&self) -> Option<Vec<u8>> {
+  fn extract_clipboard_format(
+    format_id: u32,
+    max_bytes: Option<usize>,
+  ) -> Result<Option<Vec<u8>>, ()> {
+    use clipboard_win::formats;
+
+    Ok(
+      format_has_valid_size(format_id, max_bytes)?
+        .then(|| clipboard_win::get(formats::RawData(format_id)).ok())
+        .flatten(),
+    )
+  }
+
+  pub(super) fn extract_image_bytes(&self) -> Result<Option<Vec<u8>>, ()> {
     use clipboard_win::formats;
 
     use crate::image::convert_dib_to_png;
@@ -141,63 +119,63 @@ impl WinObserver {
     let max_image_bytes = self.max_image_bytes;
 
     if let Some(png_code) = self.png_format
-      && let Some(png_bytes) = extract_clipboard_format(png_code.get(), max_image_bytes)
+      && let Some(png_bytes) = Self::extract_clipboard_format(png_code.get(), max_image_bytes)?
     {
       debug!("Loaded png from clipboard");
-      Some(png_bytes)
-    } else if let Some(bytes) = extract_clipboard_format(formats::CF_DIBV5, max_image_bytes)
+      Ok(Some(png_bytes))
+    } else if let Some(bytes) = Self::extract_clipboard_format(formats::CF_DIBV5, max_image_bytes)?
       && let Some(png_bytes) = convert_dib_to_png(&bytes)
     {
-      debug!("Loaded DIBV5 from clipboard");
+      debug!("Loaded DIBV5 from clipboard. Converting to PNG...");
 
-      Some(png_bytes)
-    } else if let Some(bytes) = extract_clipboard_format(formats::CF_DIB, max_image_bytes)
+      Ok(Some(png_bytes))
+    } else if let Some(bytes) = Self::extract_clipboard_format(formats::CF_DIB, max_image_bytes)?
       && let Some(png_bytes) = convert_dib_to_png(&bytes)
     {
-      debug!("Loaded DIB from clipboard");
+      debug!("Loaded DIB from clipboard. Converting to PNG...");
 
-      Some(png_bytes)
+      Ok(Some(png_bytes))
     } else {
-      None
+      Ok(None)
     }
   }
 
-  pub(super) fn extract_files_list(max_size: Option<usize>) -> Option<Vec<PathBuf>> {
+  pub(super) fn extract_files_list(&self) -> Result<Option<Vec<PathBuf>>, ()> {
     use clipboard_win::{formats, Getter};
 
-    clipboard_win::size(formats::FileList.into())
-      .filter(|size| max_size.is_none_or(|max| max > size.get()))
-      .and_then(|_| {
+    match format_has_valid_size(formats::FileList.into(), self.max_bytes) {
+      Ok(true) => {
         let mut files_list: Vec<PathBuf> = Vec::new();
         if let Ok(_num_files) = formats::FileList.read_clipboard(&mut files_list) {
-          Some(files_list)
+          if files_list.is_empty() {
+            log::warn!("Found files list, but the list was empty. Skipping it...");
+            Err(())
+          } else {
+            Ok(Some(files_list))
+          }
         } else {
-          None
+          Ok(None)
         }
-      })
+      }
+      Ok(false) => Ok(None),
+      Err(_) => Err(()),
+    }
   }
 
-  pub(super) fn get_clipboard_content(&self) -> Result<crate::Body, ClipboardError> {
-    use clipboard_win::{formats, Clipboard, Getter};
-
-    use crate::{body::ClipboardImage, Body};
-
-    let _clipboard =
-      Clipboard::new_attempts(10).map_err(|e| ClipboardError::ReadError(e.to_string()))?;
-
+  fn extract_clipboard_content(&self) -> Result<Option<Body>, ()> {
     let max_bytes = self.max_bytes;
 
     for (name, id) in self.custom_formats.iter() {
-      if let Some(bytes) = extract_clipboard_format(id.get(), max_bytes) {
-        return Ok(Body::Custom {
+      if let Some(bytes) = Self::extract_clipboard_format(id.get(), max_bytes)? {
+        return Ok(Some(Body::Custom {
           name: name.clone(),
           data: bytes,
-        });
+        }));
       }
     }
 
-    if let Some(image_bytes) = self.extract_image_bytes() {
-      let image_path = if let Some(mut files_list) = Self::extract_files_list(max_bytes)
+    if let Some(image_bytes) = self.extract_image_bytes()? {
+      let image_path = if let Some(mut files_list) = self.extract_files_list()?
         && files_list.len() == 1
       {
         Some(files_list.remove(0))
@@ -205,11 +183,11 @@ impl WinObserver {
         None
       };
 
-      Ok(Body::Image(ClipboardImage {
+      Ok(Some(Body::Image(ClipboardImage {
         bytes: image_bytes,
         path: image_path,
-      }))
-    } else if let Some(mut files_list) = Self::extract_files_list(max_bytes) {
+      })))
+    } else if let Some(mut files_list) = self.extract_files_list()? {
       // If there is just one file in the list and it's an image,
       // we save it directly as an image
       use crate::image::{convert_file_to_png, file_is_image};
@@ -231,39 +209,58 @@ impl WinObserver {
 
         let image_path = files_list.remove(0);
 
-        Ok(Body::Image(ClipboardImage {
+        Ok(Some(Body::Image(ClipboardImage {
           bytes: png_bytes,
           path: Some(image_path),
-        }))
+        })))
       } else {
-        Ok(Body::FileList(files_list))
+        Ok(Some(Body::FileList(files_list)))
       }
     } else {
       let mut text = String::new();
+
       if let Some(html_parser) = self.html_format
+        && format_has_valid_size(html_parser.code(), max_bytes)?
         && let Ok(_) = html_parser.read_clipboard(&mut text)
       {
         debug!("Extracted HTML content from clipboard");
 
-        Ok(Body::Html(text))
+        Ok(Some(Body::Html(text)))
       } else if let Some(rtf_format) = self.rtf_format
+        && format_has_valid_size(rtf_format.get(), max_bytes)?
         && let Ok(bytes) = clipboard_win::get(formats::RawData(rtf_format.get()))
       {
         debug!("Extracted Rich Text from clipboard");
 
-        Ok(Body::RichText(String::from_utf8_lossy(&bytes).to_string()))
-      } else if let Ok(_num_bytes) = formats::Unicode.read_clipboard(&mut text) {
+        Ok(Some(Body::RichText(
+          String::from_utf8_lossy(&bytes).to_string(),
+        )))
+      } else if format_has_valid_size(formats::Unicode.into(), max_bytes)?
+        && let Ok(_num_bytes) = formats::Unicode.read_clipboard(&mut text)
+      {
         debug!("Extracted plain text from clipboard");
 
-        Ok(Body::PlainText(text))
+        Ok(Some(Body::PlainText(text)))
       } else {
-        Err(ClipboardError::UnknownDataType)
+        Ok(None)
       }
+    }
+  }
+
+  pub(super) fn get_clipboard_content(&self) -> Result<Option<Body>, ClipboardError> {
+    let _clipboard =
+      Clipboard::new_attempts(10).map_err(|e| ClipboardError::ReadError(e.to_string()))?;
+
+    match self.extract_clipboard_content() {
+      // Found content but with invalid size, we just skip it
+      Err(_) => Ok(None),
+      // Found no readable content, we send an error
+      Ok(None) => Err(ClipboardError::UnknownDataType),
+      Ok(Some(content)) => Ok(Some(content)),
     }
   }
 }
 
-#[cfg(windows)]
 impl Observer for WinObserver {
   fn observe(&mut self, body_senders: Arc<BodySenders>) {
     while !self.stop.load(Ordering::Relaxed) {
@@ -272,7 +269,7 @@ impl Observer for WinObserver {
       match monitor.try_recv() {
         Ok(true) => {
           match self.get_clipboard_content() {
-            Ok(body) => {
+            Ok(Some(body)) => {
               body_senders.send_all(Ok(Arc::new(body)));
             }
             Err(e) => {
@@ -280,6 +277,7 @@ impl Observer for WinObserver {
 
               body_senders.send_all(Err(e));
             }
+            _ => {}
           };
         }
         Ok(false) => {
