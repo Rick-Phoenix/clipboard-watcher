@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{convert::Infallible, sync::Arc};
 
 use thiserror::Error;
 
@@ -6,6 +6,7 @@ use crate::Body;
 
 /// Various kinds of errors that can occur while monitoring or reading the clipboard.
 #[derive(Clone, Debug, Error)]
+#[non_exhaustive]
 pub enum ClipboardError {
   #[error("Failed to start clipboard monitor: {0}")]
   InitializationError(String),
@@ -24,6 +25,18 @@ pub enum ClipboardError {
 
   #[error("Could not convert clipboard image to png format")]
   ImageConversion,
+
+  #[error("The selected clipboard is not supported with the current system configuration.")]
+  ClipboardNotSupported,
+
+  #[error("The native clipboard is not accessible due to being held by another party.")]
+  ClipboardOccupied,
+}
+
+impl From<Infallible> for ClipboardError {
+  fn from(value: Infallible) -> Self {
+    match value {}
+  }
 }
 
 pub(crate) enum ExtractionError {
