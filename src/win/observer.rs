@@ -1,16 +1,22 @@
-use std::sync::{
-  atomic::{AtomicBool, Ordering},
-  Arc,
+use std::{
+  collections::HashMap,
+  num::NonZeroU32,
+  path::PathBuf,
+  sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+  },
+  time::Duration,
 };
 
-use clipboard_win::{formats, Clipboard, Getter};
+use clipboard_win::{Clipboard, Getter, formats};
 use log::{debug, error, info};
 
 use crate::{
+  Body,
   body::{BodySenders, ClipboardImage},
   error::{ClipboardError, ExtractionError},
   observer::Observer,
-  Body,
 };
 
 pub(super) struct WinObserver {

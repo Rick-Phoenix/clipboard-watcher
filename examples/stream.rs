@@ -1,4 +1,4 @@
-use clipboard_stream::{Body, ClipboardEventListener};
+use clipboard_watcher::{Body, ClipboardEventListener};
 use futures::StreamExt;
 use log::LevelFilter;
 
