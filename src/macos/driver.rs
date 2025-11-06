@@ -1,12 +1,10 @@
 use std::{
+  convert::Infallible,
   sync::{atomic::AtomicBool, Arc},
   time::Duration,
 };
 
-use crate::{
-  body::BodySenders, driver::Driver, error::ClipboardError, macos::observer::OSXObserver,
-  observer::Observer,
-};
+use crate::{body::BodySenders, driver::Driver, macos::observer::OSXObserver, observer::Observer};
 
 impl Driver {
   /// Construct [`Driver`] and spawn a thread for monitoring clipboard events
@@ -16,7 +14,7 @@ impl Driver {
     custom_formats: Vec<impl AsRef<str>>,
     max_image_bytes: Option<usize>,
     max_bytes: Option<usize>,
-  ) -> Result<Self, ClipboardError> {
+  ) -> Result<Self, Infallible> {
     let stop = Arc::new(AtomicBool::new(false));
 
     let stop_cl = stop.clone();
