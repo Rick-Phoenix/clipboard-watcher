@@ -273,9 +273,9 @@ impl WinObserver {
 
 impl Observer for WinObserver {
   fn observe(&mut self, body_senders: Arc<BodySenders>) {
-    while !self.stop.load(Ordering::Relaxed) {
-      info!("Started monitoring the clipboard");
+    info!("Started monitoring the clipboard");
 
+    while !self.stop.load(Ordering::Relaxed) {
       let monitor = &mut self.monitor;
 
       match monitor.try_recv() {

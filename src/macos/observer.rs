@@ -68,9 +68,9 @@ impl Observer for OSXObserver {
 
     let interval = self.interval;
 
-    while !self.stop.load(Ordering::Relaxed) {
-      info!("Started monitoring the clipboard");
+    info!("Started monitoring the clipboard");
 
+    while !self.stop.load(Ordering::Relaxed) {
       std::thread::sleep(interval);
 
       let change_count = self.get_change_count();
