@@ -3,7 +3,7 @@ use futures::StreamExt;
 
 #[tokio::main]
 async fn main() {
-  let mut event_listener = ClipboardEventListener::spawn().unwrap();
+  let mut event_listener = ClipboardEventListener::builder().spawn().unwrap();
 
   let mut stream = event_listener.new_stream(32);
 

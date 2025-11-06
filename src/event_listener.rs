@@ -27,7 +27,7 @@ pub struct ClipboardEventListener {
 
 pub struct ClipboardEventListenerBuilder {
   pub(crate) interval: Option<Duration>,
-  pub(crate) custom_formats: Vec<String>,
+  pub(crate) custom_formats: Vec<Arc<str>>,
   pub(crate) max_image_bytes: Option<usize>,
   pub(crate) max_bytes: Option<usize>,
 }
@@ -38,8 +38,12 @@ impl ClipboardEventListenerBuilder {
     self
   }
 
-  pub fn with_custom_formats(mut self, formats: Vec<String>) -> Self {
-    self.custom_formats = formats;
+  pub fn with_custom_formats<I, S>(mut self, formats: I) -> Self
+  where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+  {
+    self.custom_formats = formats.into_iter().map(|s| s.as_ref().into()).collect();
     self
   }
 
