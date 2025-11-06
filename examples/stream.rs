@@ -1,5 +1,6 @@
 use clipboard_stream::{Body, ClipboardEventListener};
 use futures::StreamExt;
+use log::LevelFilter;
 
 #[tokio::main]
 async fn main() {
@@ -7,8 +8,9 @@ async fn main() {
 
   let mut stream = event_listener.new_stream(32);
 
-  // Set RUST_LOG env to enable detailed logging
-  env_logger::init();
+  env_logger::builder()
+    .filter_level(LevelFilter::max())
+    .init();
 
   while let Some(result) = stream.next().await {
     match result {

@@ -1,45 +1,70 @@
-# clipboard-stream
-[![crates.io](https://img.shields.io/crates/v/clipboard-stream.svg)](https://crates.io/crates/clipboard-stream)
-[![docs.rs](https://img.shields.io/docsrs/clipboard-stream/latest)](https://docs.rs/clipboard-stream)
-![GitHub License](https://img.shields.io/github/license/nakaryo716/clipboard-stream)
+# clipboard-watcher
 
-Async stream of clipboard change events.
-Provides real-time clipboard monitoring through an async Stream interface.
+This crate can be used to subscribe to the system clipboard and read its contents whenever a new item is added to it. 
 
-The main part of this crate is ClipboardStream. This struct implements Stream Trait.
+It leverages the `Stream` async primitive, which unlocks common useful implementations for streams such as debouncing.
 
-## Example
-The following example shows how to receive clipboard items:
+It allows for customization of the listener's parameters, such as:
+
+- Custom formats
+- Polling interval
+- Maximum size (items beyond this size are not processed)
+- Maximum image size
+
+# Supported Formats
+
+- HTML
+- Text
+- File list
+- Custom formats
+- Images (normalized to PNG)
+
+# Example
+
 ```rust
 use clipboard_stream::{Body, ClipboardEventListener};
 use futures::StreamExt;
+use log::LevelFilter;
 
 #[tokio::main]
 async fn main() {
-    // Spawn a clipboard event listener
-    let mut event_listener = ClipboardEventListener::spawn();
-    // Create a ClipboardStream with buffer
-    let mut stream = event_listener.new_stream(32);
+  let mut event_listener = ClipboardEventListener::builder().spawn().unwrap();
 
-    // Text is printed when the clipboard is updated(Copy operation)
-    while let Some(content) = stream.next().await {
-        match content {
-            Body::Utf8String(text) => {
-                println!("got string: {}", text);
+  let mut stream = event_listener.new_stream(32);
+
+  env_logger::builder().filter_level(LevelFilter::max()).init();
+
+  while let Some(result) = stream.next().await {
+    match result {
+      Ok(content) => {
+        match content.as_ref() {
+          Body::PlainText(v) => println!("Received string:\n{v}"),
+          Body::Image(image) => {
+            println!("Received image");
+            if let Some(path) = &image.path {
+              println!("Image Path: {path:#?}");
             }
-        }
+          }
+          Body::FileList(files) => println!("Received files: {files:#?}"),
+          Body::Html(html) => println!("Received html: \n{html}"),
+          _ => {}
+        };
+      }
+      Err(e) => eprintln!("{e}"),
     }
+  }
 }
 ```
 
-## Runtime
-Internally, this crate spawns a small dedicated OS thread to listen for clipboard events.
-The API itself is Future-based and does not depend on any specific async runtime, so it works with tokio, smol, or any runtime compatible with futures.
+# Platforms
 
-## Platforms
-- macOS
+- Windows
+- Macos
 
-Currently supported on **macOS only**. Windows support is planned for a future release.
+## Credits And Licenses
 
-## License
-clipboard-stream is provided under the MIT license.See [LICENSE](LICENSE)
+Licensed under the Apache-2.0 license.
+
+Initial concept for stream-based architecture is taken from [clipboard-stream](https://github.com/nakaryo716/clipboard-stream), licensed under MIT.
+
+Code for string extraction for the macos clipboard is taken from [arboard](https://github.com/1Password/arboard), licensed under MIT/Apache-2.0

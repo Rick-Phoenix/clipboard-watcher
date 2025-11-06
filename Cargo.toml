@@ -1,15 +1,12 @@
 [package]
-name = "clipboard-stream"
-version = "0.2.1"
+name = "clipboard-watcher"
+version = "0.1.0"
 edition = "2024"
-readme = "README.md"
-repository = "https://github.com/nakaryo716/clipboard-stream"
-license = "MIT"
-description = """
-Async stream of clipboard change events
-"""
-documentation = "https://docs.rs/clipboard-stream"
-keywords = ["clipboard"]
+readme = true
+repository = "https://github.com/Rick-Phoenix/clipboard-watcher"
+license = "Apache-2.0"
+description = "Customizable listener for the system clipboard that uses the Stream async primitive"
+keywords = ["clipboard", "async"]
 
 [dependencies]
 futures = "0.3"
