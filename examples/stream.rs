@@ -1,45 +1,32 @@
-#[cfg(not(target_os = "macos"))]
-fn main() {}
-
-use std::{
-  fs::File,
-  io::Write,
-  sync::{
-    atomic::{AtomicU32, Ordering},
-    Arc,
-  },
-};
-
-use clipboard_stream::{Body, ClipboardEventListener, MimeType};
+use clipboard_stream::{Body, ClipboardEventListener};
 use futures::StreamExt;
 
-#[cfg(target_os = "macos")]
-#[tokio::main(flavor = "current_thread")]
+#[tokio::main]
 async fn main() {
-  let mut event_listener = ClipboardEventListener::spawn();
-  let mut stream = event_listener.new_stream(32);
-  let count = Arc::new(AtomicU32::new(0));
+  let mut event_listener = ClipboardEventListener::builder().spawn().unwrap();
 
-  while let Some(content) = stream.next().await {
-    match content {
-      Body::PlainText(text) => {
-        println!("got string: {}", text);
-      }
-      Body::Image {
-        mime: mime_type,
-        data: v,
-      } => {
-        println!("got: {:?}", mime_type);
-        let cc = count.clone();
-        tokio::task::spawn_blocking(move || {
-          if mime_type == MimeType::ImagePng {
-            let num = cc.fetch_add(1, Ordering::Relaxed);
-            let file_name = format!("clip-img-{}.png", num);
-            let mut file = File::create(file_name).unwrap();
-            file.write_all(v.as_ref()).unwrap();
+  let mut stream = event_listener.new_stream(32);
+
+  // Set RUST_LOG env to enable detailed logging
+  env_logger::init();
+
+  while let Some(result) = stream.next().await {
+    match result {
+      Ok(content) => {
+        match content.as_ref() {
+          Body::PlainText(v) => println!("Received string:\n{v}"),
+          Body::Image(image) => {
+            println!("Received image");
+            if let Some(path) = &image.path {
+              println!("Image Path: {path:#?}");
+            }
           }
-        });
+          Body::FileList(files) => println!("Received files: {files:#?}"),
+          Body::Html(html) => println!("Received html: \n{html}"),
+          _ => {}
+        };
       }
+      Err(e) => eprintln!("{e}"),
     }
   }
 }
