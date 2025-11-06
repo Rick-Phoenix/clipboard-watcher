@@ -1,9 +1,12 @@
-use log::error;
 use std::{io::Cursor, path::Path};
 
-use image::{DynamicImage, ImageFormat, codecs::bmp::BmpDecoder};
+use image::ImageFormat;
+use log::error;
 
+#[cfg(windows)]
 pub(crate) fn convert_dib_to_png(dib_bytes: &[u8]) -> Option<Vec<u8>> {
+  use image::{codecs::bmp::BmpDecoder, DynamicImage};
+
   let cursor = Cursor::new(dib_bytes);
 
   let decoder = BmpDecoder::new_without_file_header(cursor).ok()?;

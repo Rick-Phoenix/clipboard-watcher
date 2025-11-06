@@ -1,12 +1,6 @@
-use std::{
-  collections::HashMap,
-  num::NonZeroU32,
-  path::PathBuf,
-  sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc,
-  },
-  time::Duration,
+use std::sync::{
+  atomic::{AtomicBool, Ordering},
+  Arc,
 };
 
 use clipboard_win::{formats, Clipboard, Getter};
@@ -14,7 +8,7 @@ use log::{debug, error};
 
 use crate::{
   body::{BodySenders, ClipboardImage},
-  error::ClipboardError,
+  error::{ClipboardError, ExtractionError},
   observer::Observer,
   Body,
 };
@@ -27,13 +21,21 @@ pub(super) struct WinObserver {
   rtf_format: Option<NonZeroU32>,
   custom_formats: HashMap<Arc<str>, NonZeroU32>,
   interval: Duration,
-  max_image_bytes: Option<usize>,
-  max_bytes: Option<usize>,
+  max_image_size: Option<usize>,
+  max_size: Option<usize>,
+}
+
+struct FormatTooLarge;
+
+impl From<FormatTooLarge> for ExtractionError {
+  fn from(_: FormatTooLarge) -> Self {
+    Self::SizeTooLarge
+  }
 }
 
 // To allow early exits later on, we use Err for cases when the format has been found but is over the allowed size
 // (so that other formats are not checked needlessly), and use a normal boolean to signal presence
-fn format_has_valid_size(format_id: u32, max_bytes: Option<usize>) -> Result<bool, ()> {
+fn format_is_valid(format_id: u32, max_bytes: Option<usize>) -> Result<bool, FormatTooLarge> {
   match max_bytes {
     Some(max) => match clipboard_win::size(format_id) {
       Some(size) => {
@@ -41,7 +43,7 @@ fn format_has_valid_size(format_id: u32, max_bytes: Option<usize>) -> Result<boo
           Ok(true)
         } else {
           // Invalid side, we use an error to exit early later on
-          Err(())
+          Err(FormatTooLarge)
         }
       }
       // Format is not present at all
@@ -93,30 +95,32 @@ impl WinObserver {
       rtf_format,
       custom_formats: custom_formats_map,
       interval: interval.unwrap_or_else(|| Duration::from_millis(200)),
-      max_image_bytes,
-      max_bytes,
+      max_image_size: max_image_bytes,
+      max_size: max_bytes,
     }
   }
 
   fn extract_clipboard_format(
     format_id: u32,
     max_bytes: Option<usize>,
-  ) -> Result<Option<Vec<u8>>, ()> {
+  ) -> Result<Option<Vec<u8>>, ExtractionError> {
     use clipboard_win::formats;
 
-    Ok(
-      format_has_valid_size(format_id, max_bytes)?
-        .then(|| clipboard_win::get(formats::RawData(format_id)).ok())
-        .flatten(),
-    )
+    match format_is_valid(format_id, max_bytes)?
+      .then(|| clipboard_win::get(formats::RawData(format_id)).ok())
+      .flatten()
+    {
+      Some(data) => Ok(Some(data)),
+      None => Ok(None),
+    }
   }
 
-  pub(super) fn extract_image_bytes(&self) -> Result<Option<Vec<u8>>, ()> {
+  pub(super) fn extract_image_bytes(&self) -> Result<Option<Vec<u8>>, ExtractionError> {
     use clipboard_win::formats;
 
     use crate::image::convert_dib_to_png;
 
-    let max_image_bytes = self.max_image_bytes;
+    let max_image_bytes = self.max_image_size;
 
     if let Some(png_code) = self.png_format
       && let Some(png_bytes) = Self::extract_clipboard_format(png_code.get(), max_image_bytes)?
@@ -124,13 +128,13 @@ impl WinObserver {
       debug!("Loaded png from clipboard");
       Ok(Some(png_bytes))
     } else if let Some(bytes) = Self::extract_clipboard_format(formats::CF_DIBV5, max_image_bytes)?
-      && let Some(png_bytes) = convert_dib_to_png(&bytes)
+      && let Ok(png_bytes) = convert_dib_to_png(&bytes).ok_or(ExtractionError::ConversionError)
     {
       debug!("Loaded DIBV5 from clipboard. Converting to PNG...");
 
       Ok(Some(png_bytes))
     } else if let Some(bytes) = Self::extract_clipboard_format(formats::CF_DIB, max_image_bytes)?
-      && let Some(png_bytes) = convert_dib_to_png(&bytes)
+      && let Ok(png_bytes) = convert_dib_to_png(&bytes).ok_or(ExtractionError::ConversionError)
     {
       debug!("Loaded DIB from clipboard. Converting to PNG...");
 
@@ -140,16 +144,14 @@ impl WinObserver {
     }
   }
 
-  pub(super) fn extract_files_list(&self) -> Result<Option<Vec<PathBuf>>, ()> {
-    use clipboard_win::{formats, Getter};
-
-    match format_has_valid_size(formats::FileList.into(), self.max_bytes) {
-      Ok(true) => {
+  pub(super) fn extract_files_list(&self) -> Result<Option<Vec<PathBuf>>, ExtractionError> {
+    match format_is_valid(formats::FileList.into(), self.max_size)? {
+      true => {
         let mut files_list: Vec<PathBuf> = Vec::new();
         if let Ok(_num_files) = formats::FileList.read_clipboard(&mut files_list) {
           if files_list.is_empty() {
-            log::warn!("Found files list, but the list was empty. Skipping it...");
-            Err(())
+            log::debug!("Found files list, but the list was empty. Skipping it...");
+            Err(ExtractionError::EmptyContent)
           } else {
             Ok(Some(files_list))
           }
@@ -157,13 +159,12 @@ impl WinObserver {
           Ok(None)
         }
       }
-      Ok(false) => Ok(None),
-      Err(_) => Err(()),
+      false => Ok(None),
     }
   }
 
-  fn extract_clipboard_content(&self) -> Result<Option<Body>, ()> {
-    let max_bytes = self.max_bytes;
+  fn extract_clipboard_content(&self) -> Result<Option<Body>, ExtractionError> {
+    let max_bytes = self.max_size;
 
     for (name, id) in self.custom_formats.iter() {
       if let Some(bytes) = Self::extract_clipboard_format(id.get(), max_bytes)? {
@@ -199,7 +200,7 @@ impl WinObserver {
         // Then, if it's an image
         && file_is_image(path)
         // Then, if the size is within the allowed range
-        && max_bytes.is_none_or(|max| path.metadata().is_ok_and(|metadata| max as u64 > metadata.len()))
+        && self.max_image_size.is_none_or(|max| path.metadata().is_ok_and(|metadata| max as u64 > metadata.len()))
         // Then, if the bytes are readable and the conversion to png is successful
         && let Some(png_bytes) = convert_file_to_png(path)
       //
@@ -220,14 +221,12 @@ impl WinObserver {
       let mut text = String::new();
 
       if let Some(html_parser) = self.html_format
-        && format_has_valid_size(html_parser.code(), max_bytes)?
         && let Ok(_) = html_parser.read_clipboard(&mut text)
       {
         debug!("Extracted HTML content from clipboard");
 
         Ok(Some(Body::Html(text)))
       } else if let Some(rtf_format) = self.rtf_format
-        && format_has_valid_size(rtf_format.get(), max_bytes)?
         && let Ok(bytes) = clipboard_win::get(formats::RawData(rtf_format.get()))
       {
         debug!("Extracted Rich Text from clipboard");
@@ -235,9 +234,7 @@ impl WinObserver {
         Ok(Some(Body::RichText(
           String::from_utf8_lossy(&bytes).to_string(),
         )))
-      } else if format_has_valid_size(formats::Unicode.into(), max_bytes)?
-        && let Ok(_num_bytes) = formats::Unicode.read_clipboard(&mut text)
-      {
+      } else if let Ok(_num_bytes) = formats::Unicode.read_clipboard(&mut text) {
         debug!("Extracted plain text from clipboard");
 
         Ok(Some(Body::PlainText(text)))
@@ -252,11 +249,15 @@ impl WinObserver {
       Clipboard::new_attempts(10).map_err(|e| ClipboardError::ReadError(e.to_string()))?;
 
     match self.extract_clipboard_content() {
-      // Found content but with invalid size, we just skip it
-      Err(_) => Ok(None),
-      // Found no readable content, we send an error
-      Ok(None) => Err(ClipboardError::UnknownDataType),
+      // Found content
       Ok(Some(content)) => Ok(Some(content)),
+      // Non-fatal errors, we just return None
+      Err(ExtractionError::EmptyContent) => Ok(None),
+      Err(ExtractionError::SizeTooLarge) => Ok(None),
+
+      Err(ExtractionError::ConversionError) => Err(ClipboardError::ImageConversion),
+      // There was content but we could not read it
+      Ok(None) => Err(ClipboardError::NoMatchingFormat),
     }
   }
 }
@@ -277,7 +278,8 @@ impl Observer for WinObserver {
 
               body_senders.send_all(Err(e));
             }
-            _ => {}
+            // Found content but ignored it (empty or too large)
+            Ok(None) => {}
           };
         }
         Ok(false) => {

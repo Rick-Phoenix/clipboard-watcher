@@ -18,8 +18,17 @@ pub enum ClipboardError {
   #[error("Failed to read the clipboard: {0}")]
   ReadError(String),
 
-  #[error("Failed to read the clipboard: unknown data type")]
-  UnknownDataType,
+  #[error("The content of the clipboard did not match any supported format")]
+  NoMatchingFormat,
+
+  #[error("Could not convert clipboard image to png format")]
+  ImageConversion,
+}
+
+pub(crate) enum ExtractionError {
+  EmptyContent,
+  SizeTooLarge,
+  ConversionError,
 }
 
 pub type ClipboardResult = Result<Arc<Body>, ClipboardError>;
