@@ -1,17 +1,37 @@
-use objc2::rc::{Retained, autoreleasepool};
-use objc2_app_kit::{
-  NSFilenamesPboardType, NSPasteboard, NSPasteboardTypePNG, NSPasteboardTypeString,
+use std::{
+  path::PathBuf,
+  sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+  },
+  time::Duration,
 };
 
-use crate::Body;
+use log::{debug, warn};
+use objc2::{
+  ClassType,
+  rc::{Retained, autoreleasepool},
+};
+use objc2_app_kit::{
+  NSPasteboard, NSPasteboardType, NSPasteboardTypeHTML, NSPasteboardTypePNG, NSPasteboardTypeRTF,
+  NSPasteboardTypeString, NSPasteboardTypeTIFF, NSPasteboardURLReadingFileURLsOnlyKey,
+};
+use objc2_foundation::{NSArray, NSData, NSDictionary, NSNumber, NSString, NSURL};
+
+use crate::{
+  body::*,
+  error::{ClipboardError, ExtractionError},
+  image::*,
+  observer::Observer,
+};
 
 pub(crate) struct OSXObserver {
   stop: Arc<AtomicBool>,
   pasteboard: Retained<NSPasteboard>,
   interval: Duration,
   custom_formats: Vec<Arc<str>>,
-  max_image_bytes: Option<usize>,
-  max_bytes: Option<usize>,
+  max_image_size: Option<usize>,
+  max_size: Option<usize>,
 }
 
 impl OSXObserver {
@@ -19,26 +39,25 @@ impl OSXObserver {
     stop: Arc<AtomicBool>,
     interval: Option<Duration>,
     custom_formats: Vec<Arc<str>>,
-    max_image_bytes: Option<usize>,
-    max_bytes: Option<usize>,
+    max_image_size: Option<usize>,
+    max_size: Option<usize>,
   ) -> Self {
     let pasteboard = unsafe { NSPasteboard::generalPasteboard() };
 
-    let max_image_bytes = if max_image_bytes.is_none() && max_bytes.is_some() {
+    let max_image_size = if max_image_size.is_none() && max_size.is_some() {
       debug!("Using global size limit for images...");
-
-      max_bytes
+      max_size
     } else {
-      max_image_bytes
+      max_image_size
     };
 
     OSXObserver {
       stop,
       pasteboard,
-      interval,
+      interval: interval.unwrap_or_else(|| std::time::Duration::from_millis(200)),
       custom_formats,
-      max_image_bytes,
-      max_bytes,
+      max_image_size,
+      max_size,
     }
   }
 }
@@ -47,9 +66,7 @@ impl Observer for OSXObserver {
   fn observe(&mut self, body_senders: Arc<BodySenders>) {
     let mut last_count = self.get_change_count();
 
-    let interval = self
-      .interval
-      .unwrap_or_else(|| std::time::Duration::from_millis(200));
+    let interval = self.interval;
 
     while !self.stop.load(Ordering::Relaxed) {
       std::thread::sleep(interval);
@@ -59,7 +76,12 @@ impl Observer for OSXObserver {
       if change_count != last_count {
         last_count = change_count;
 
-        body_senders.send_all(Arc::new(self.get_content()))
+        match self.get_clipboard_content() {
+          Ok(Some(content)) => body_senders.send_all(Ok(Arc::new(content))),
+          Err(e) => body_senders.send_all(Err(e)),
+          // Found content but ignored it (empty or beyond allowed size)
+          Ok(None) => {}
+        }
       }
     }
   }
@@ -70,168 +92,211 @@ impl OSXObserver {
     unsafe { self.pasteboard.changeCount() }
   }
 
-  pub(crate) fn extract_file_list(self) -> Option<Vec<PathBuf>> {
+  fn extract_clipboard_format(
+    &self,
+    format_type: &NSPasteboardType,
+    max_size: Option<usize>,
+  ) -> Result<Option<Vec<u8>>, ExtractionError> {
     autoreleasepool(|_| {
+      let data_obj: Option<Retained<NSData>> = unsafe { self.pasteboard.dataForType(format_type) };
+
+      match data_obj {
+        Some(data) => {
+          let size = data.len();
+          if size == 0 {
+            // Found content but it was empty, trigger early exit
+            return Err(ExtractionError::EmptyContent);
+          }
+
+          // Check the size limit. If exceeded, return Err to signal an early exit.
+          if let Some(limit) = max_size {
+            if size > limit {
+              warn!(
+                "Data for type '{}' of size {} bytes exceeds limit of {} bytes. Aborting.",
+                format_type, size, limit
+              );
+              return Err(ExtractionError::SizeTooLarge);
+            }
+          }
+
+          // Size is okay, copy the data to a Rust Vec.
+          Ok(Some(data.to_vec()))
+        }
+        None => Ok(None), // Format was not present.
+      }
+    })
+  }
+
+  pub(crate) fn extract_files_list(&self) -> Result<Option<Vec<PathBuf>>, ExtractionError> {
+    let files = autoreleasepool(|_| {
       let class_array = NSArray::from_slice(&[NSURL::class()]);
       let options = NSDictionary::from_slices(
         &[unsafe { NSPasteboardURLReadingFileURLsOnlyKey }],
         &[NSNumber::new_bool(true).as_ref()],
       );
+
       let objects = unsafe {
         self
-          .clipboard
           .pasteboard
           .readObjectsForClasses_options(&class_array, Some(&options))
       };
 
-      objects
-        .map(|array| {
-          array
-            .iter()
-            .filter_map(|obj| {
-              obj
-                .downcast::<NSURL>()
-                .ok()
-                .and_then(|url| unsafe { url.path() }.map(|p| PathBuf::from(p.to_string())))
+      objects.map(|array| {
+        array
+          .iter()
+          .filter_map(|obj| {
+            obj.downcast::<NSURL>().ok().and_then(|url| {
+              if unsafe { url.isFileURL() } {
+                unsafe { url.path() }.map(|p| PathBuf::from(p.to_string()))
+              } else {
+                None
+              }
             })
-            .collect::<Vec<_>>()
-        })
-        .filter(|file_list| !file_list.is_empty())
-    })
+          })
+          .collect::<Vec<_>>()
+      })
+    });
+
+    match files {
+      Some(files) => {
+        if files.is_empty() {
+          // Found list but it was empty, trigger early exit
+          Err(ExtractionError::EmptyContent)
+        } else {
+          Ok(Some(files))
+        }
+      }
+      None => Ok(None),
+    }
   }
 
-  fn extract_image_bytes(&self) -> Option<Vec<u8>> {
-    if let Some(png_bytes) = self.get_data_for_type(NSPasteboardTypePNG, self.max_image_bytes) {
-      debug!("Found image in png format");
+  pub(super) fn extract_image_bytes(&self) -> Result<Option<Vec<u8>>, ExtractionError> {
+    let max_image_size = self.max_image_size;
 
-      Some(png_bytes)
-    } else if let Some(tiff_bytes) =
-      self.get_data_for_type(NSPasteboardTypeTIFF, self.max_image_bytes)
+    if let Some(png_bytes) =
+      unsafe { self.extract_clipboard_format(NSPasteboardTypePNG, max_image_size)? }
     {
-      debug!("Found raw TIFF data. Normalizing to PNG...");
+      debug!("Loaded png from clipboard");
+      Ok(Some(png_bytes))
+    } else if let Some(tiff_bytes) =
+      unsafe { self.extract_clipboard_format(NSPasteboardTypeTIFF, max_image_size)? }
+    {
+      debug!("Loaded TIFF from clipboard. Converting to PNG...");
 
       if let Some(png_bytes) = convert_tiff_to_png(&tiff_bytes) {
-        Some(png_bytes)
+        Ok(Some(png_bytes))
       } else {
-        None
+        // We got the content but failed to extract it, trigger early exit
+        Err(ExtractionError::ConversionError)
       }
+    } else {
+      Ok(None)
     }
-
-    None
   }
 
-  fn get_raw_data(
-    &self,
-    format_type: &NSPasteboardType,
-    max_bytes: Option<usize>,
-  ) -> Option<Vec<u8>> {
-    max_bytes
-      .is_none_or(|max| {
-        self
-          .get_data_for_type(format_type)
-          .is_some_and(|size| max > size)
-      })
-      .then_some(|| {
-        let data = unsafe { self.pasteboard.dataForType(format_type) }?;
-        data.to_vec()
-      })
-      .filter(|data| !data.is_empty())
-  }
-
-  fn string_from_type(&self, type_: &'static NSString) -> Option<String> {
+  fn string_from_type(&self, type_: &'static NSString) -> Result<Option<String>, ExtractionError> {
     // XXX: We explicitly use `pasteboardItems` and not `stringForType` since the latter will concat
     // multiple strings, if present, into one and return it instead of reading just the first which is `arboard`'s
     // historical behavior.
-    let contents = unsafe { self.pasteboard.pasteboardItems() }
-      .ok_or_else(|| Error::unknown("NSPasteboard#pasteboardItems errored"))?;
-
-    for item in contents {
-      if let Some(string) = unsafe { item.stringForType(type_) } {
-        return Some(string.to_string());
-      }
-    }
-
-    None
-  }
-
-  fn get_data_size_for_type(&self, format_type: &NSPasteboardType) -> Option<usize> {
-    // Get cheap reference first
-    let data_obj: Option<Retained<NSData>> = unsafe { self.pasteboard.dataForType(format_type) };
-
-    data_obj.map(|data| {
-      // Get size of buffer
-      let size = data.len();
-      size
-    })
-  }
-
-  pub(crate) fn get_content(&self) -> Result<Body, ClipboardError> {
     autoreleasepool(|_| {
-      let max_bytes = self.max_bytes;
+      // If no pasteboard items are found, we trigger the early exit
+      let contents =
+        unsafe { self.pasteboard.pasteboardItems() }.ok_or(ExtractionError::EmptyContent)?;
 
-      for format in self.custom_formats.iter() {
-        let format_nsstring = NSString::from_str(format.as_ref());
-
-        if let Some(bytes) = get_data_size_for_type(&format_nsstring)
-          .filter(|size| max_bytes.is_none_or(|max| max > size))
-          .and_then(|_| get_data_for_type(&format_nsstring))
-        {
-          return Ok(Body::Custom {
-            name: format.clone(),
-            data: bytes,
-          });
+      for item in contents {
+        if let Some(string) = unsafe { item.stringForType(type_) } {
+          let rust_string = string.to_string();
+          if !rust_string.is_empty() {
+            return Ok(Some(rust_string));
+          }
         }
       }
 
-      if let Some(image_bytes) = self.extract_image_bytes() {
-        let image_path = if let Some(mut files_list) = self.extract_file_list()
-          && files_list.len() == 1
-        {
-          Some(files_list.remove(0))
+      Ok(None)
+    })
+  }
+
+  fn extract_content(&self) -> Result<Option<Body>, ExtractionError> {
+    autoreleasepool(|_| {
+      let max_size = self.max_size;
+
+      for name in self.custom_formats.iter() {
+        let format_nsstring = NSString::from_str(name.as_ref());
+        // For custom formats, we check the size as well as the presence
+        if let Some(bytes) = self.extract_clipboard_format(&format_nsstring, max_size)? {
+          return Ok(Some(Body::Custom {
+            name: name.clone(),
+            data: bytes,
+          }));
+        }
+      }
+
+      if let Some(image_bytes) = self.extract_image_bytes()? {
+        // If there is only one path in the file list, which is sometimes emitted by the OS
+        // when copying an image, we assign it to the image
+        let image_path = if let Some(mut files_list) = self.extract_files_list()? {
+          if files_list.len() == 1 {
+            Some(files_list.remove(0))
+          } else {
+            None
+          }
         } else {
           None
         };
 
-        Ok(Body::Image(ClipboardImage {
-          path: image_path,
+        Ok(Some(Body::Image(ClipboardImage {
           bytes: image_bytes,
-        }))
-      } else if let Some(mut files_list) = self.extract_file_list() {
-        // If there is just one file in the list and it's an image,
-        // we save it directly as an image
-        use crate::image::{convert_file_to_png, file_is_image};
-
-        // We check if there is just one file
+          path: image_path,
+        })))
+      } else if let Some(mut files_list) = self.extract_files_list()? {
+        // We check if there is only one file in the list
         if files_list.len() == 1
-        && let Some(path) = files_list.first()
-
-        // Then, if it's an image
-        && file_is_image(path)
-        // Then, if the size is within the allowed range
-        && max_bytes.is_none_or(|max| path.metadata().is_ok_and(|metadata| max as u64 > metadata.len()))
-        // Then, if the bytes are readable and the conversion to png is successful
-        && let Some(png_bytes) = convert_file_to_png(path)
+          && let Some(path) = files_list.first()
+          // Then, if it's an image
+          && file_is_image(path)
+          // Then, if the size is within the allowed range
+          && self.max_image_size.is_none_or(|max| path.metadata().is_ok_and(|metadata| max as u64 > metadata.len()))
+          // Then, if the bytes are readable and the conversion to png is successful
+          && let Some(png_bytes) = convert_file_to_png(path)
         //
         // Only if all of these are true, we save it as an image
         {
-          debug!("Found file path with image format. Processing it as an image...");
-
           let image_path = files_list.remove(0);
 
-          Ok(Body::Image(ClipboardImage {
+          Ok(Some(Body::Image(ClipboardImage {
             bytes: png_bytes,
             path: Some(image_path),
-          }))
+          })))
         } else {
-          Ok(Body::FileList(files_list))
+          Ok(Some(Body::FileList(files_list)))
         }
-      } else if let Some(html) = self.string_from_type(NSPasteboardTypeHTML) {
-        Ok(Body::Html(html))
-      } else if let Some(rich_text) = self.string_from_type(NSPasteboardTypeRTF) {
-        Ok(Body::RichText(rich_text))
-      } else if let Some(text) = self.string_from_type(NSPasteboardTypeString) {
-        Ok(Body::PlainText(text))
+      } else {
+        if let Some(html) = unsafe { self.string_from_type(NSPasteboardTypeHTML)? } {
+          return Ok(Some(Body::Html(html)));
+        }
+        if let Some(rtf) = unsafe { self.string_from_type(NSPasteboardTypeRTF)? } {
+          return Ok(Some(Body::RichText(rtf)));
+        }
+        if let Some(plain) = unsafe { self.string_from_type(NSPasteboardTypeString)? } {
+          return Ok(Some(Body::PlainText(plain)));
+        }
+
+        Ok(None)
       }
     })
+  }
+
+  fn get_clipboard_content(&self) -> Result<Option<Body>, ClipboardError> {
+    match self.extract_content() {
+      // Found content
+      Ok(Some(content)) => Ok(Some(content)),
+      // Non-fatal errors, we just return None
+      Err(ExtractionError::EmptyContent) => Ok(None),
+      Err(ExtractionError::SizeTooLarge) => Ok(None),
+
+      Err(ExtractionError::ConversionError) => Err(ClipboardError::ImageConversion),
+      // There was content but we could not read it
+      Ok(None) => Err(ClipboardError::NoMatchingFormat),
+    }
   }
 }

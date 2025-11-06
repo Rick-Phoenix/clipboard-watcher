@@ -1,9 +1,12 @@
-use crate::macos::observer::WinObserver;
-use crate::observer::Observer;
-use std::sync::{Arc, atomic::AtomicBool};
-use std::time::Duration;
+use std::{
+  sync::{atomic::AtomicBool, Arc},
+  time::Duration,
+};
 
-use crate::{body::BodySenders, driver::Driver, error::ClipboardError};
+use crate::{
+  body::BodySenders, driver::Driver, error::ClipboardError, macos::observer::OSXObserver,
+  observer::Observer,
+};
 
 impl Driver {
   /// Construct [`Driver`] and spawn a thread for monitoring clipboard events
@@ -29,7 +32,7 @@ impl Driver {
       // construct Observer in thread
       // OSXSys is **not** implemented Send + Sync
       // in order to send Observer, construct it
-      let mut observer = observer::OSXObserver::new(
+      let mut observer = OSXObserver::new(
         stop_cl,
         interval,
         custom_formats,
