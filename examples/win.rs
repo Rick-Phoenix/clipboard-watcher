@@ -7,6 +7,8 @@ async fn main() {
 
   let mut stream = event_listener.new_stream(32);
 
+  env_logger::init();
+
   while let Some(result) = stream.next().await {
     match result {
       Ok(content) => {
