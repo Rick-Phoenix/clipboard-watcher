@@ -26,8 +26,7 @@ pub(super) struct WinObserver {
   png_format: Option<NonZeroU32>,
   custom_formats: HashMap<Arc<str>, NonZeroU32>,
   interval: Duration,
-  max_image_size: Option<usize>,
-  max_size: Option<usize>,
+  max_size: Option<u32>,
 }
 
 struct FormatTooLarge;
@@ -40,11 +39,11 @@ impl From<FormatTooLarge> for ExtractionError {
 
 // To allow early exits later on, we use Err for cases when the format has been found but is over the allowed size
 // (so that other formats are not checked needlessly), and use a normal boolean to signal presence
-fn format_is_valid(format_id: u32, max_bytes: Option<usize>) -> Result<bool, FormatTooLarge> {
+fn format_is_valid(format_id: u32, max_bytes: Option<u32>) -> Result<bool, FormatTooLarge> {
   match max_bytes {
     Some(max) => match clipboard_win::size(format_id) {
       Some(size) => {
-        if max > size.get() {
+        if max as usize > size.get() {
           Ok(true)
         } else {
           // Invalid side, we use an error to exit early later on
@@ -65,8 +64,7 @@ impl WinObserver {
     monitor: clipboard_win::Monitor,
     custom_formats: Vec<Arc<str>>,
     interval: Option<Duration>,
-    max_image_bytes: Option<usize>,
-    max_bytes: Option<usize>,
+    max_bytes: Option<u32>,
   ) -> Self {
     let html_format = clipboard_win::formats::Html::new();
     let png_format = clipboard_win::register_format("PNG");
@@ -83,14 +81,6 @@ impl WinObserver {
       })
       .collect();
 
-    let max_image_bytes = if max_image_bytes.is_none() && max_bytes.is_some() {
-      debug!("Using global size limit for images...");
-
-      max_bytes
-    } else {
-      max_image_bytes
-    };
-
     WinObserver {
       stop,
       monitor,
@@ -98,14 +88,13 @@ impl WinObserver {
       png_format,
       custom_formats: custom_formats_map,
       interval: interval.unwrap_or_else(|| Duration::from_millis(200)),
-      max_image_size: max_image_bytes,
       max_size: max_bytes,
     }
   }
 
   fn extract_clipboard_format(
     format_id: u32,
-    max_bytes: Option<usize>,
+    max_bytes: Option<u32>,
   ) -> Result<Option<Vec<u8>>, ExtractionError> {
     use clipboard_win::formats;
 
@@ -123,20 +112,20 @@ impl WinObserver {
 
     use crate::image::convert_dib_to_png;
 
-    let max_image_bytes = self.max_image_size;
+    let max_size = self.max_size;
 
     if let Some(png_code) = self.png_format
-      && let Some(png_bytes) = Self::extract_clipboard_format(png_code.get(), max_image_bytes)?
+      && let Some(png_bytes) = Self::extract_clipboard_format(png_code.get(), max_size)?
     {
       debug!("Loaded png from clipboard");
       Ok(Some(png_bytes))
-    } else if let Some(bytes) = Self::extract_clipboard_format(formats::CF_DIBV5, max_image_bytes)?
+    } else if let Some(bytes) = Self::extract_clipboard_format(formats::CF_DIBV5, max_size)?
       && let Ok(png_bytes) = convert_dib_to_png(&bytes).ok_or(ExtractionError::ConversionError)
     {
       debug!("Loaded DIBV5 from clipboard. Converting to PNG...");
 
       Ok(Some(png_bytes))
-    } else if let Some(bytes) = Self::extract_clipboard_format(formats::CF_DIB, max_image_bytes)?
+    } else if let Some(bytes) = Self::extract_clipboard_format(formats::CF_DIB, max_size)?
       && let Ok(png_bytes) = convert_dib_to_png(&bytes).ok_or(ExtractionError::ConversionError)
     {
       debug!("Loaded DIB from clipboard. Converting to PNG...");
@@ -167,10 +156,10 @@ impl WinObserver {
   }
 
   fn extract_clipboard_content(&self) -> Result<Option<Body>, ExtractionError> {
-    let max_bytes = self.max_size;
+    let max_size = self.max_size;
 
     for (name, id) in self.custom_formats.iter() {
-      if let Some(bytes) = Self::extract_clipboard_format(id.get(), max_bytes)? {
+      if let Some(bytes) = Self::extract_clipboard_format(id.get(), max_size)? {
         debug!("Found content with custom format `{name}`");
 
         return Ok(Some(Body::Custom {
@@ -205,7 +194,7 @@ impl WinObserver {
         // Then, if it's an image
         && file_is_image(path)
         // Then, if the size is within the allowed range
-        && self.max_image_size.is_none_or(|max| path.metadata().is_ok_and(|metadata| max as u64 > metadata.len()))
+        && max_size.is_none_or(|max| path.metadata().is_ok_and(|metadata| max as u64 > metadata.len()))
         // Then, if the bytes are readable and the conversion to png is successful
         && let Some(png_bytes) = convert_file_to_png(path)
       //

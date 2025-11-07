@@ -30,8 +30,7 @@ pub(crate) struct OSXObserver {
   pasteboard: Retained<NSPasteboard>,
   interval: Duration,
   custom_formats: Vec<Arc<str>>,
-  max_image_size: Option<usize>,
-  max_size: Option<usize>,
+  max_size: Option<u32>,
 }
 
 impl OSXObserver {
@@ -39,24 +38,15 @@ impl OSXObserver {
     stop: Arc<AtomicBool>,
     interval: Option<Duration>,
     custom_formats: Vec<Arc<str>>,
-    max_image_size: Option<usize>,
-    max_size: Option<usize>,
+    max_size: Option<u32>,
   ) -> Self {
     let pasteboard = unsafe { NSPasteboard::generalPasteboard() };
-
-    let max_image_size = if max_image_size.is_none() && max_size.is_some() {
-      debug!("Using global size limit for images...");
-      max_size
-    } else {
-      max_image_size
-    };
 
     OSXObserver {
       stop,
       pasteboard,
       interval: interval.unwrap_or_else(|| std::time::Duration::from_millis(200)),
       custom_formats,
-      max_image_size,
       max_size,
     }
   }
@@ -100,7 +90,7 @@ impl OSXObserver {
   fn extract_clipboard_format(
     &self,
     format_type: &NSPasteboardType,
-    max_size: Option<usize>,
+    max_size: Option<u32>,
   ) -> Result<Option<Vec<u8>>, ExtractionError> {
     autoreleasepool(|_| {
       let data_obj: Option<Retained<NSData>> = unsafe { self.pasteboard.dataForType(format_type) };
@@ -115,7 +105,7 @@ impl OSXObserver {
 
           // Check the size limit. If exceeded, return Err to signal an early exit.
           if let Some(limit) = max_size {
-            if size > limit {
+            if size > limit as usize {
               return Err(ExtractionError::SizeTooLarge);
             }
           }
@@ -173,15 +163,15 @@ impl OSXObserver {
   }
 
   pub(super) fn extract_image_bytes(&self) -> Result<Option<Vec<u8>>, ExtractionError> {
-    let max_image_size = self.max_image_size;
+    let max_size = self.max_size;
 
     if let Some(png_bytes) =
-      unsafe { self.extract_clipboard_format(NSPasteboardTypePNG, max_image_size)? }
+      unsafe { self.extract_clipboard_format(NSPasteboardTypePNG, max_size)? }
     {
       debug!("Loaded png from clipboard");
       Ok(Some(png_bytes))
     } else if let Some(tiff_bytes) =
-      unsafe { self.extract_clipboard_format(NSPasteboardTypeTIFF, max_image_size)? }
+      unsafe { self.extract_clipboard_format(NSPasteboardTypeTIFF, max_size)? }
     {
       debug!("Loaded TIFF from clipboard. Converting to PNG...");
 
@@ -261,7 +251,7 @@ impl OSXObserver {
           // Then, if it's an image
           && file_is_image(path)
           // Then, if the size is within the allowed range
-          && self.max_image_size.is_none_or(|max| path.metadata().is_ok_and(|metadata| max as u64 > metadata.len()))
+          && self.max_size.is_none_or(|max| path.metadata().is_ok_and(|metadata| max as u64 > metadata.len()))
           // Then, if the bytes are readable and the conversion to png is successful
           && let Some(png_bytes) = convert_file_to_png(path)
         //

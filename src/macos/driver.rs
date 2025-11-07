@@ -1,6 +1,6 @@
 use std::{
   convert::Infallible,
-  sync::{atomic::AtomicBool, Arc},
+  sync::{Arc, atomic::AtomicBool},
   time::Duration,
 };
 
@@ -12,8 +12,7 @@ impl Driver {
     body_senders: Arc<BodySenders>,
     interval: Option<Duration>,
     custom_formats: Vec<impl AsRef<str>>,
-    max_image_bytes: Option<usize>,
-    max_bytes: Option<usize>,
+    max_bytes: Option<u32>,
   ) -> Result<Self, Infallible> {
     let stop = Arc::new(AtomicBool::new(false));
 
@@ -30,13 +29,7 @@ impl Driver {
       // construct Observer in thread
       // OSXSys is **not** implemented Send + Sync
       // in order to send Observer, construct it
-      let mut observer = OSXObserver::new(
-        stop_cl,
-        interval,
-        custom_formats,
-        max_image_bytes,
-        max_bytes,
-      );
+      let mut observer = OSXObserver::new(stop_cl, interval, custom_formats, max_bytes);
 
       // event change observe loop
       observer.observe(body_senders);

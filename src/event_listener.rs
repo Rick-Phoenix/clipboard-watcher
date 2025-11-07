@@ -8,10 +8,10 @@ use std::{
 
 use futures::channel::mpsc;
 
-use crate::error::ClipboardError;
 use crate::{
   body::{BodySenders, BodySendersDropHandle},
   driver::Driver,
+  error::ClipboardError,
   stream::StreamId,
   ClipboardStream,
 };
@@ -31,8 +31,7 @@ pub struct ClipboardEventListener {
 pub struct ClipboardEventListenerBuilder {
   pub(crate) interval: Option<Duration>,
   pub(crate) custom_formats: Vec<Arc<str>>,
-  pub(crate) max_image_bytes: Option<usize>,
-  pub(crate) max_bytes: Option<usize>,
+  pub(crate) max_bytes: Option<u32>,
 }
 
 impl ClipboardEventListenerBuilder {
@@ -56,18 +55,10 @@ impl ClipboardEventListenerBuilder {
     self
   }
 
-  /// Sets a maximum allowed size for images. If an image is larger than the given size, it will not be processed.
-  ///
-  /// If this is unset, but [`max_size`](Self::max_size) is set, the latter will be used as the size limit.
-  pub fn max_image_size(mut self, max_bytes: usize) -> Self {
-    self.max_image_bytes = Some(max_bytes);
-    self
-  }
-
-  /// Sets a maximum allowed size limit. It only applies to custom formats (or to images, if [`max_image_size`](Self::max_image_size) is unset).
+  /// Sets a maximum allowed size limit. It only applies to custom formats or to images, but not to text-based formats like html or plain text.
   ///
   /// If a clipboard item is larger than the given size, it will not be processed.
-  pub fn max_size(mut self, max_bytes: usize) -> Self {
+  pub fn max_size(mut self, max_bytes: u32) -> Self {
     self.max_bytes = Some(max_bytes);
     self
   }
@@ -80,7 +71,6 @@ impl ClipboardEventListenerBuilder {
       body_senders.clone(),
       self.interval,
       self.custom_formats,
-      self.max_image_bytes,
       self.max_bytes,
     )?;
     Ok(ClipboardEventListener {
@@ -97,7 +87,6 @@ impl ClipboardEventListener {
     ClipboardEventListenerBuilder {
       interval: None,
       custom_formats: vec![],
-      max_image_bytes: None,
       max_bytes: None,
     }
   }
