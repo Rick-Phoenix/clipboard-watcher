@@ -46,6 +46,8 @@ mod driver;
 pub mod error;
 mod event_listener;
 pub(crate) mod image;
+#[cfg(target_os = "linux")]
+mod linux;
 #[cfg(target_os = "macos")]
 mod macos;
 mod observer;
@@ -55,7 +57,4 @@ mod win;
 
 pub use stream::{ClipboardStream, StreamId};
 
-pub use crate::{
-  body::{Body, MimeType},
-  event_listener::ClipboardEventListener,
-};
+pub use crate::{body::Body, event_listener::ClipboardEventListener};
