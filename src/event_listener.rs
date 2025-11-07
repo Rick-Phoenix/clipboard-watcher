@@ -11,7 +11,7 @@ use futures::channel::mpsc;
 use crate::{
   body::{BodySenders, BodySendersDropHandle},
   driver::Driver,
-  error::ClipboardError,
+  error::InitializationError,
   stream::StreamId,
   ClipboardStream,
 };
@@ -64,7 +64,7 @@ impl ClipboardEventListenerBuilder {
   }
 
   /// Spawns the [`ClipboardEventListener`].
-  pub fn spawn(self) -> Result<ClipboardEventListener, ClipboardError> {
+  pub fn spawn(self) -> Result<ClipboardEventListener, InitializationError> {
     let body_senders = Arc::new(BodySenders::new());
 
     let driver = Driver::new(
@@ -94,7 +94,7 @@ impl ClipboardEventListener {
   /// Creates a new [`ClipboardEventListener`] that monitors clipboard changes in a dedicated OS thread.
   ///
   /// Uses all of the default options.
-  pub fn spawn() -> Result<Self, ClipboardError> {
+  pub fn spawn() -> Result<Self, InitializationError> {
     Self::builder().spawn()
   }
 
