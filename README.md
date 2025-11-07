@@ -67,4 +67,4 @@ Licensed under the Apache-2.0 license.
 
 Initial concept for stream-based architecture is taken from [clipboard-stream](https://github.com/nakaryo716/clipboard-stream), licensed under MIT.
 
-Code for string extraction for the macos clipboard is taken from [arboard](https://github.com/1Password/arboard), licensed under MIT/Apache-2.0
+Various bits of code are also taken from [clipboard-rs](https://github.com/ChurchTao/clipboard-rs) (MIT) and [arboard](https://github.com/1Password/arboard) (MIT/Apache-2.0)
