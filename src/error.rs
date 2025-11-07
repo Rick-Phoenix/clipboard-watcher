@@ -21,9 +21,6 @@ pub enum ClipboardError {
   #[error("Failed to monitor the clipboard: {0}")]
   MonitorFailed(String),
 
-  #[error("Failed to receive data from channel: {0}")]
-  TryRecvError(String),
-
   #[error("Failed to read the clipboard: {0}")]
   ReadError(String),
 
@@ -45,12 +42,6 @@ pub(crate) enum ErrorWrapper {
   SizeTooLarge,
   FormatUnavailable,
   ReadError(ClipboardError),
-}
-
-pub(crate) enum ExtractionError {
-  EmptyContent,
-  SizeTooLarge,
-  ConversionError,
 }
 
 pub type ClipboardResult = Result<Arc<Body>, ClipboardError>;

@@ -1,16 +1,16 @@
 use std::{
   path::PathBuf,
   sync::{
-    Arc,
     atomic::{AtomicBool, Ordering},
+    Arc,
   },
   time::Duration,
 };
 
 use log::{debug, error, info};
 use objc2::{
+  rc::{autoreleasepool, Retained},
   ClassType,
-  rc::{Retained, autoreleasepool},
 };
 use objc2_app_kit::{
   NSPasteboard, NSPasteboardType, NSPasteboardTypeHTML, NSPasteboardTypePNG,
@@ -20,7 +20,7 @@ use objc2_foundation::{NSArray, NSData, NSDictionary, NSNumber, NSString, NSURL}
 
 use crate::{
   body::*,
-  error::{ClipboardError, ExtractionError},
+  error::{ClipboardError, ErrorWrapper},
   image::*,
   observer::Observer,
 };
@@ -91,7 +91,7 @@ impl OSXObserver {
     &self,
     format_type: &NSPasteboardType,
     max_size: Option<u32>,
-  ) -> Result<Option<Vec<u8>>, ExtractionError> {
+  ) -> Result<Option<Vec<u8>>, ErrorWrapper> {
     autoreleasepool(|_| {
       let data_obj: Option<Retained<NSData>> = unsafe { self.pasteboard.dataForType(format_type) };
 
@@ -100,13 +100,13 @@ impl OSXObserver {
           let size = data.len();
           if size == 0 {
             // Found content but it was empty, trigger early exit
-            return Err(ExtractionError::EmptyContent);
+            return Err(ErrorWrapper::EmptyContent);
           }
 
           // Check the size limit. If exceeded, return Err to signal an early exit.
           if let Some(limit) = max_size {
             if size > limit as usize {
-              return Err(ExtractionError::SizeTooLarge);
+              return Err(ErrorWrapper::SizeTooLarge);
             }
           }
 
@@ -118,7 +118,7 @@ impl OSXObserver {
     })
   }
 
-  pub(crate) fn extract_files_list(&self) -> Result<Option<Vec<PathBuf>>, ExtractionError> {
+  pub(crate) fn extract_files_list(&self) -> Result<Option<Vec<PathBuf>>, ErrorWrapper> {
     let files = autoreleasepool(|_| {
       let class_array = NSArray::from_slice(&[NSURL::class()]);
       let options = NSDictionary::from_slices(
@@ -152,7 +152,7 @@ impl OSXObserver {
       Some(files) => {
         if files.is_empty() {
           // Found list but it was empty, trigger early exit
-          Err(ExtractionError::EmptyContent)
+          Err(ErrorWrapper::EmptyContent)
         } else {
           debug!("Found file list");
           Ok(Some(files))
@@ -162,7 +162,7 @@ impl OSXObserver {
     }
   }
 
-  pub(super) fn extract_image_bytes(&self) -> Result<Option<Vec<u8>>, ExtractionError> {
+  pub(super) fn extract_image_bytes(&self) -> Result<Option<Vec<u8>>, ErrorWrapper> {
     let max_size = self.max_size;
 
     if let Some(png_bytes) =
@@ -179,21 +179,21 @@ impl OSXObserver {
         Ok(Some(png_bytes))
       } else {
         // We got the content but failed to extract it, trigger early exit
-        Err(ExtractionError::ConversionError)
+        Err(ErrorWrapper::ReadError(ClipboardError::ImageConversion))
       }
     } else {
       Ok(None)
     }
   }
 
-  fn string_from_type(&self, type_: &'static NSString) -> Result<Option<String>, ExtractionError> {
+  fn string_from_type(&self, type_: &'static NSString) -> Result<Option<String>, ErrorWrapper> {
     // XXX: We explicitly use `pasteboardItems` and not `stringForType` since the latter will concat
     // multiple strings, if present, into one and return it instead of reading just the first which is `arboard`'s
     // historical behavior.
     autoreleasepool(|_| {
       // If no pasteboard items are found, we trigger the early exit
       let contents =
-        unsafe { self.pasteboard.pasteboardItems() }.ok_or(ExtractionError::EmptyContent)?;
+        unsafe { self.pasteboard.pasteboardItems() }.ok_or(ErrorWrapper::EmptyContent)?;
 
       for item in contents {
         if let Some(string) = unsafe { item.stringForType(type_) } {
@@ -201,7 +201,7 @@ impl OSXObserver {
           if !rust_string.is_empty() {
             return Ok(Some(rust_string));
           } else {
-            return Err(ExtractionError::EmptyContent);
+            return Err(ErrorWrapper::EmptyContent);
           }
         }
       }
@@ -210,7 +210,7 @@ impl OSXObserver {
     })
   }
 
-  fn extract_content(&self) -> Result<Option<Body>, ExtractionError> {
+  fn extract_content(&self) -> Result<Option<Body>, ErrorWrapper> {
     autoreleasepool(|_| {
       let max_size = self.max_size;
 
@@ -285,18 +285,23 @@ impl OSXObserver {
     match self.extract_content() {
       // Found content
       Ok(Some(content)) => Ok(Some(content)),
+
       // Non-fatal errors, we just return None
-      Err(ExtractionError::EmptyContent) => {
+      Err(ErrorWrapper::EmptyContent) => {
         debug!("Found empty content, skipping it...");
         Ok(None)
       }
-      Err(ExtractionError::SizeTooLarge) => {
+
+      Err(ErrorWrapper::SizeTooLarge) => {
         debug!("Found content beyond allowed size, skipping it...");
         Ok(None)
       }
 
-      // Actual error, we send it
-      Err(ExtractionError::ConversionError) => Err(ClipboardError::ImageConversion),
+      Err(ErrorWrapper::FormatUnavailable) => Ok(None),
+
+      // Actual error
+      Err(ErrorWrapper::ReadError(e)) => Err(e),
+
       // There was content but we could not read it
       Ok(None) => Err(ClipboardError::NoMatchingFormat),
     }
