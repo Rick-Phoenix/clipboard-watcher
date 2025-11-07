@@ -65,31 +65,30 @@ impl WinObserver {
     custom_formats: Vec<Arc<str>>,
     interval: Option<Duration>,
     max_bytes: Option<u32>,
-  ) -> Self {
+  ) -> Result<Self, String> {
     let html_format = clipboard_win::formats::Html::new();
     let png_format = clipboard_win::register_format("PNG");
 
-    let custom_formats_map: HashMap<Arc<str>, NonZeroU32> = custom_formats
+    let custom_formats_map: Result<HashMap<Arc<str>, NonZeroU32>, String> = custom_formats
       .into_iter()
-      .filter_map(|name| {
+      .map(|name| {
         if let Some(id) = clipboard_win::register_format(name.as_ref()) {
-          Some((name, id))
+          Ok((name, id))
         } else {
-          log::error!("Failed to register custom clipboard type `{name}`");
-          None
+          Err(format!("Failed to register custom clipboard type `{name}`"))
         }
       })
       .collect();
 
-    WinObserver {
+    Ok(WinObserver {
       stop,
       monitor,
       html_format,
       png_format,
-      custom_formats: custom_formats_map,
+      custom_formats: custom_formats_map?,
       interval: interval.unwrap_or_else(|| Duration::from_millis(200)),
       max_size: max_bytes,
-    }
+    })
   }
 
   fn extract_clipboard_format(

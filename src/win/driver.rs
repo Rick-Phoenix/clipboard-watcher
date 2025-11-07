@@ -3,7 +3,7 @@ use crate::win::observer::WinObserver;
 use std::sync::{Arc, atomic::AtomicBool};
 use std::time::Duration;
 
-use crate::{body::BodySenders, driver::Driver, error::ClipboardError};
+use crate::{body::BodySenders, driver::Driver, error::InitializationError};
 
 impl Driver {
   /// Construct [`Driver`] and spawn a thread for monitoring clipboard events
@@ -12,7 +12,7 @@ impl Driver {
     interval: Option<Duration>,
     custom_formats: Vec<impl AsRef<str>>,
     max_bytes: Option<u32>,
-  ) -> Result<Self, ClipboardError> {
+  ) -> Result<Self, InitializationError> {
     use std::sync::mpsc;
 
     let stop = Arc::new(AtomicBool::new(false));
@@ -31,21 +31,22 @@ impl Driver {
     let handle = std::thread::spawn(move || {
       match clipboard_win::Monitor::new() {
         Ok(monitor) => {
-          init_tx.send(Ok(())).unwrap();
-
-          let mut observer = WinObserver::new(
+          match WinObserver::new(
             stop_cl,
             monitor,
             thread_safe_formats_list,
             interval,
             max_bytes,
-          );
-
-          // event change observe loop
-          observer.observe(body_senders);
+          ) {
+            Ok(mut observer) => {
+              init_tx.send(Ok(())).unwrap();
+              observer.observe(body_senders);
+            }
+            Err(e) => init_tx.send(Err(e)).unwrap(),
+          };
         }
         Err(e) => {
-          init_tx.send(Err(e)).unwrap();
+          init_tx.send(Err(e.to_string())).unwrap();
         }
       };
     });
@@ -56,8 +57,8 @@ impl Driver {
         stop,
         handle: Some(handle),
       }),
-      Ok(Err(e)) => Err(ClipboardError::InitializationError(format!("{e:#?}"))),
-      Err(e) => Err(ClipboardError::TryRecvError(e.to_string())),
+      Ok(Err(e)) => Err(InitializationError(e)),
+      Err(e) => Err(InitializationError(e.to_string())),
     }
   }
 }
