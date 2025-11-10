@@ -199,7 +199,7 @@ impl LinuxObserver {
       let bytes = self.server_context.extract_clipboard_content(
         self.server_context.atoms.HTML,
         &available_formats,
-        self.max_size,
+        None,
       )?;
 
       let html = String::from_utf8_lossy(&bytes);
@@ -212,7 +212,7 @@ impl LinuxObserver {
       let bytes =
         self
           .server_context
-          .extract_clipboard_content(format, &available_formats, self.max_size)?;
+          .extract_clipboard_content(format, &available_formats, None)?;
 
       let text = String::from_utf8_lossy(&bytes);
 
