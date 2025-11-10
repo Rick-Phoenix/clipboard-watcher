@@ -28,7 +28,7 @@ async fn main() {
           _ => {}
         };
       }
-      Err(e) => eprintln!("{e}"),
+      Err(e) => eprintln!("Got an error: {e}"),
     }
   }
 }

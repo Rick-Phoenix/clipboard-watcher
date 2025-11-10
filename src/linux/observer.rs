@@ -359,6 +359,9 @@ impl XServerContext {
 
     let sequence_number = cookie.sequence_number();
 
+    // Flush requests before checking for the response
+    self.conn.flush().map_err(to_read_error)?;
+
     loop {
       if start_time.elapsed() > timeout {
         return Err(to_read_error("Timeout waiting for SelectionNotify event"));
