@@ -30,40 +30,6 @@ pub(super) struct WinObserver {
   max_size: Option<u32>,
 }
 
-// We use the error wrapper to trigger early exit in case a format is present but not valid, to avoid checking other formats
-fn access_format(
-  available_formats: &[u32],
-  format_id: u32,
-  max_bytes: Option<u32>,
-) -> Result<(), ErrorWrapper> {
-  match available_formats.contains(&format_id) {
-    true => {
-      match max_bytes {
-        Some(max) => match clipboard_win::size(format_id) {
-          Some(size) => {
-            if max as usize > size.get() {
-              Ok(())
-            } else if size.get() == 0 {
-              Err(ErrorWrapper::EmptyContent)
-            } else {
-              debug!(
-                "Found content with {:.2}MB size, beyond maximum allowed size. Skipping it...",
-                bytes_to_mb(size.get())
-              );
-              // Invalid side, we use an error to exit early later on
-              Err(ErrorWrapper::SizeTooLarge)
-            }
-          }
-          // Should be impossible
-          None => Err(ErrorWrapper::FormatUnavailable),
-        },
-        None => Ok(()),
-      }
-    }
-    false => Err(ErrorWrapper::FormatUnavailable),
-  }
-}
-
 impl WinObserver {
   pub(super) fn new(
     stop: Arc<AtomicBool>,
@@ -83,7 +49,7 @@ impl WinObserver {
         if let Some(id) = clipboard_win::register_format(name.as_ref()) {
           Ok((name, id))
         } else {
-          Err(format!("Failed to register custom clipboard type `{name}`"))
+          Err(format!("Failed to register custom format `{name}`"))
         }
       })
       .collect();
@@ -310,5 +276,39 @@ fn content_is_not_empty(content: &str) -> Result<bool, ErrorWrapper> {
     Err(ErrorWrapper::EmptyContent)
   } else {
     Ok(true)
+  }
+}
+
+// We use the error wrapper to trigger early exit in case a format is present but not valid, to avoid checking other formats
+fn access_format(
+  available_formats: &[u32],
+  format_id: u32,
+  max_bytes: Option<u32>,
+) -> Result<(), ErrorWrapper> {
+  match available_formats.contains(&format_id) {
+    true => {
+      match max_bytes {
+        Some(max) => match clipboard_win::size(format_id) {
+          Some(size) => {
+            if max as usize > size.get() {
+              Ok(())
+            } else if size.get() == 0 {
+              Err(ErrorWrapper::EmptyContent)
+            } else {
+              debug!(
+                "Found content with {:.2}MB size, beyond maximum allowed size. Skipping it...",
+                bytes_to_mb(size.get())
+              );
+              // Invalid side, we use an error to exit early later on
+              Err(ErrorWrapper::SizeTooLarge)
+            }
+          }
+          // Should be impossible
+          None => Err(ErrorWrapper::FormatUnavailable),
+        },
+        None => Ok(()),
+      }
+    }
+    false => Err(ErrorWrapper::FormatUnavailable),
   }
 }
