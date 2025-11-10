@@ -6,7 +6,16 @@ readme = true
 repository = "https://github.com/Rick-Phoenix/clipboard-watcher"
 license = "Apache-2.0"
 description = "Customizable listener for the system clipboard that uses the Stream async primitive"
-keywords = ["clipboard", "async"]
+keywords = [
+  "clipboard",
+  "async",
+  "stream",
+  "macos",
+  "windows",
+  "linux",
+  "x11",
+  "xwayland",
+]
 
 [dependencies]
 futures = "0.3"
