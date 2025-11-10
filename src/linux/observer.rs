@@ -582,6 +582,8 @@ impl XServerContext {
 fn paths_from_uri_list(uri_list: Vec<u8>) -> Vec<PathBuf> {
   uri_list
     .split(|char| *char == b'\n')
+    // Removing any trailing \r that might be captured
+    .map(|line| line.strip_suffix(b"\r").unwrap_or(line))
     .filter_map(|line| line.strip_prefix(b"file://"))
     .filter_map(|s| percent_decode(s).decode_utf8().ok())
     .map(|decoded| PathBuf::from(decoded.as_ref()))
