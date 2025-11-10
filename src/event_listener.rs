@@ -57,7 +57,9 @@ impl ClipboardEventListenerBuilder {
 
   /// Sets a maximum allowed size limit. It only applies to custom formats or to images, but not to text-based formats like html or plain text.
   ///
-  /// If a clipboard item is larger than the given size, it will not be processed.
+  /// The various platform-specific implementations will use a performant method to check the size of the clipboard items without loading their content into a buffer, so this can be useful to avoid processing large files.
+  ///
+  /// The linux implementation has a fallible mechanism for getting the size of the clipboard item in a performant way, using a less performant method as a fallback.
   pub fn max_size(mut self, max_bytes: u32) -> Self {
     self.max_bytes = Some(max_bytes);
     self
