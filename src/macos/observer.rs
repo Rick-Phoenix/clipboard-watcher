@@ -203,9 +203,8 @@ impl OSXObserver {
 
       for item in contents {
         if let Some(string) = unsafe { item.stringForType(type_) } {
-          let rust_string = string.to_string();
-          if !rust_string.is_empty() {
-            return Ok(Some(rust_string));
+          if !string.is_empty() {
+            return Ok(Some(string.to_string()));
           } else {
             return Err(ErrorWrapper::EmptyContent);
           }
