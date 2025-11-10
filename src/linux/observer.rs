@@ -9,7 +9,7 @@ use std::{
   time::{Duration, Instant},
 };
 
-use log::{error, info};
+use log::{debug, error, info, trace};
 use percent_encoding::percent_decode;
 use x11rb::{
   connection::Connection,
@@ -26,6 +26,7 @@ use crate::{
   body::BodySenders,
   error::{ClipboardError, ErrorWrapper},
   image::{convert_file_to_png, file_is_image},
+  logging::bytes_to_mb,
   observer::Observer,
   Body,
 };
@@ -54,7 +55,7 @@ impl LinuxObserver {
     max_size: Option<u32>,
     custom_formats: Vec<Arc<str>>,
   ) -> Result<Self, String> {
-    let server_context = XServerContext::new();
+    let server_context = XServerContext::new()?;
 
     let custom_formats = server_context.intern_custom_formats(custom_formats)?;
 
@@ -77,7 +78,7 @@ impl LinuxObserver {
       server_context.atoms.CLIPBOARD,
       xfixes::SelectionEventMask::SET_SELECTION_OWNER,
     )
-    .map_err(|e| format!("Failed to select selection input: {e}"))?;
+    .map_err(|e| format!("Failed to select selection input with xfixes: {e}"))?;
 
     cookie
       .check()
@@ -141,10 +142,11 @@ impl LinuxObserver {
       Ok(Some(content)) => Ok(Some(content)),
 
       // No content or non-fatal errors
-      Ok(None)
-      | Err(ErrorWrapper::EmptyContent)
-      | Err(ErrorWrapper::SizeTooLarge)
-      | Err(ErrorWrapper::FormatUnavailable) => Ok(None),
+      Ok(None) | Err(ErrorWrapper::SizeTooLarge) | Err(ErrorWrapper::FormatUnavailable) => Ok(None),
+      Err(ErrorWrapper::EmptyContent) => {
+        trace!("Found empty content. Skipping it...");
+        Ok(None)
+      }
 
       Err(ErrorWrapper::ReadError(e)) => Err(e),
     }
@@ -296,11 +298,21 @@ impl XServerContext {
     Ok(available_formats)
   }
 
-  fn new() -> Self {
-    let (conn, screen) = x11rb::connect(None).unwrap();
-    let win_id = conn.generate_id().unwrap();
+  fn new() -> Result<Self, String> {
+    let (conn, screen) =
+      x11rb::connect(None).map_err(|e| format!("Failed to connect to the x11 server: {e}"))?;
+
+    let win_id = conn
+      .generate_id()
+      .map_err(|e| format!("Failed to generate a window id: {e}"))?;
+
     {
-      let screen = conn.setup().roots.get(screen).unwrap();
+      let screen = conn
+        .setup()
+        .roots
+        .get(screen)
+        .ok_or("Failed to get the root window".to_string())?;
+
       conn
         .create_window(
           0,
@@ -316,18 +328,22 @@ impl XServerContext {
           &CreateWindowAux::new()
             .event_mask(EventMask::STRUCTURE_NOTIFY | EventMask::PROPERTY_CHANGE),
         )
-        .unwrap()
+        .map_err(|e| format!("Failed to create a new x11 window: {e}"))?
         .check()
-        .unwrap();
+        .map_err(|e| format!("Failed to create a new x11 window: {e}"))?;
     }
-    let atoms = Atoms::new(&conn).unwrap().reply().unwrap();
 
-    Self {
+    let atoms = Atoms::new(&conn)
+      .map_err(|e| format!("Failed to get the atoms identifiers: {e}"))?
+      .reply()
+      .map_err(|e| format!("Failed to get the atoms identifiers: {e}"))?;
+
+    Ok(Self {
       conn,
       win_id,
       screen,
       atoms,
-    }
+    })
   }
 
   fn request_property(
@@ -480,13 +496,18 @@ impl XServerContext {
         self.request_and_read_property(self.atoms.LENGTH, self.atoms.METADATA, )?;
 
       if size_bytes.len() >= 4 {
-        let size = u32::from_ne_bytes(size_bytes[0..4].try_into().unwrap());
+        let size = usize::from_ne_bytes(size_bytes[0..4].try_into().unwrap());
 
         if size == 0 {
           return Err(ErrorWrapper::EmptyContent);
         }
 
-        if size > max_size {
+        if size as u32 > max_size {
+          debug!(
+            "Found content with {:.2}MB size, beyond maximum allowed size. Skipping it...",
+            bytes_to_mb(size)
+          );
+
           return Err(ErrorWrapper::SizeTooLarge);
         }
         // Size is OK, now we must do a *second* request for the actual data.
@@ -508,6 +529,11 @@ impl XServerContext {
 
       // 4. Make a decision based on the size.
       if size > max_size {
+        debug!(
+          "Found content with {:.2}MB size, beyond maximum allowed size. Skipping it...",
+          bytes_to_mb(size as usize)
+        );
+
         // Size is too large. We MUST clean up the property we created.
         self
           .conn
