@@ -23,8 +23,8 @@ use crate::{
 pub(super) struct WinObserver {
   stop: Arc<AtomicBool>,
   monitor: clipboard_win::Monitor,
-  html_format: Option<clipboard_win::formats::Html>,
-  png_format: Option<NonZeroU32>,
+  html_format: clipboard_win::formats::Html,
+  png_format: NonZeroU32,
   custom_formats: HashMap<Arc<str>, NonZeroU32>,
   interval: Duration,
   max_size: Option<u32>,
@@ -72,8 +72,10 @@ impl WinObserver {
     interval: Option<Duration>,
     max_bytes: Option<u32>,
   ) -> Result<Self, String> {
-    let html_format = clipboard_win::formats::Html::new();
-    let png_format = clipboard_win::register_format("PNG");
+    let html_format = clipboard_win::formats::Html::new()
+      .ok_or("Failed to create html format identifier".to_string())?;
+    let png_format = clipboard_win::register_format("PNG")
+      .ok_or("Failed to create png format identifier".to_string())?;
 
     let custom_formats_map: Result<HashMap<Arc<str>, NonZeroU32>, String> = custom_formats
       .into_iter()
@@ -124,9 +126,8 @@ impl WinObserver {
 
     let max_size = self.max_size;
 
-    if let Some(png_code) = self.png_format
-      && let Some(png_bytes) =
-        Self::extract_clipboard_format(available_formats, png_code.get(), max_size)?
+    if let Some(png_bytes) =
+      Self::extract_clipboard_format(available_formats, self.png_format.get(), max_size)?
     {
       trace!("Loaded PNG from clipboard");
 
@@ -224,9 +225,7 @@ impl WinObserver {
     } else {
       let mut text = String::new();
 
-      if let Some(html_parser) = self.html_format
-        && let Ok(_) = html_parser.read_clipboard(&mut text)
-      {
+      if self.html_format.read_clipboard(&mut text).is_ok() {
         Ok(Some(Body::new_html(text)))
       } else if let Ok(_num_bytes) = formats::Unicode.read_clipboard(&mut text) {
         Ok(Some(Body::new_text(text)))
