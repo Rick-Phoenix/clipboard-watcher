@@ -225,9 +225,11 @@ impl WinObserver {
     } else {
       let mut text = String::new();
 
-      if self.html_format.read_clipboard(&mut text).is_ok() {
+      if self.html_format.read_clipboard(&mut text).is_ok() && content_is_not_empty(&text)? {
         Ok(Some(Body::new_html(text)))
-      } else if let Ok(_num_bytes) = formats::Unicode.read_clipboard(&mut text) {
+      } else if let Ok(_num_bytes) = formats::Unicode.read_clipboard(&mut text)
+        && content_is_not_empty(&text)?
+      {
         Ok(Some(Body::new_text(text)))
       } else {
         Ok(None)
@@ -300,5 +302,13 @@ impl Observer for WinObserver {
         }
       }
     }
+  }
+}
+
+fn content_is_not_empty(content: &str) -> Result<bool, ErrorWrapper> {
+  if content.is_empty() {
+    Err(ErrorWrapper::EmptyContent)
+  } else {
+    Ok(true)
   }
 }
