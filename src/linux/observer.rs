@@ -23,7 +23,7 @@ use x11rb::{
 };
 
 use crate::{
-  body::{BodySenders, ClipboardImage},
+  body::BodySenders,
   error::{ClipboardError, ErrorWrapper},
   image::{convert_file_to_png, file_is_image},
   observer::Observer,
@@ -161,10 +161,7 @@ impl LinuxObserver {
           self.max_size,
         )?;
 
-        return Ok(Some(Body::Custom {
-          name: name.clone(),
-          data,
-        }));
+        return Ok(Some(Body::new_custom(name.clone(), data)));
       }
     }
 
@@ -181,7 +178,7 @@ impl LinuxObserver {
         None
       };
 
-      Ok(Some(Body::Image(ClipboardImage { bytes, path })))
+      Ok(Some(Body::new_image(bytes, path)))
     } else if available_formats.contains(&self.server_context.atoms.FILE_LIST) {
       let mut files = self.server_context.extract_file_list(&available_formats)?;
 
@@ -192,9 +189,9 @@ impl LinuxObserver {
         {
           let path = files.remove(0);
 
-          Ok(Some(Body::Image(ClipboardImage { bytes: png_bytes, path: Some(path) })))
+          Ok(Some(Body::new_image(png_bytes, Some(path))))
         } else {
-          Ok(Some(Body::FileList(files)))
+          Ok(Some(Body::new_file_list(files)))
         }
     } else if available_formats.contains(&self.server_context.atoms.HTML) {
       let bytes = self.server_context.extract_clipboard_content(
@@ -205,7 +202,7 @@ impl LinuxObserver {
 
       let html = String::from_utf8_lossy(&bytes);
 
-      Ok(Some(Body::Html(html.into_owned())))
+      Ok(Some(Body::new_html(html.into_owned())))
     } else if let Some(format) = self
       .server_context
       .available_text_format(&available_formats)
@@ -217,7 +214,7 @@ impl LinuxObserver {
 
       let text = String::from_utf8_lossy(&bytes);
 
-      Ok(Some(Body::PlainText(text.into_owned())))
+      Ok(Some(Body::new_text(text.into_owned())))
     } else {
       Err(ErrorWrapper::ReadError(ClipboardError::NoMatchingFormat))
     }

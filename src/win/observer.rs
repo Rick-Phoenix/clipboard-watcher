@@ -10,12 +10,13 @@ use std::{
 };
 
 use clipboard_win::{Clipboard, Getter, formats};
-use log::{debug, error, info};
+use log::{debug, error, info, trace};
 
 use crate::{
   Body,
-  body::{BodySenders, ClipboardImage},
+  body::BodySenders,
   error::{ClipboardError, ErrorWrapper},
+  logging::bytes_to_mb,
   observer::Observer,
 };
 
@@ -45,6 +46,10 @@ fn access_format(
             } else if size.get() == 0 {
               Err(ErrorWrapper::EmptyContent)
             } else {
+              debug!(
+                "Found content with {:.2}MB size, beyond maximum allowed size. Skipping it...",
+                bytes_to_mb(size.get())
+              );
               // Invalid side, we use an error to exit early later on
               Err(ErrorWrapper::SizeTooLarge)
             }
@@ -123,14 +128,15 @@ impl WinObserver {
       && let Some(png_bytes) =
         Self::extract_clipboard_format(available_formats, png_code.get(), max_size)?
     {
-      debug!("Loaded png from clipboard");
+      trace!("Loaded PNG from clipboard");
+
       Ok(Some(png_bytes))
     } else if let Some(bytes) =
       Self::extract_clipboard_format(available_formats, formats::CF_DIBV5, max_size)?
       && let Ok(png_bytes) =
         convert_dib_to_png(&bytes).ok_or(ErrorWrapper::ReadError(ClipboardError::ImageConversion))
     {
-      debug!("Loaded DIBV5 from clipboard. Converting to PNG...");
+      trace!("Loaded DIBV5 from clipboard. Converting to PNG...");
 
       Ok(Some(png_bytes))
     } else if let Some(bytes) =
@@ -138,7 +144,7 @@ impl WinObserver {
       && let Ok(png_bytes) =
         convert_dib_to_png(&bytes).ok_or(ErrorWrapper::ReadError(ClipboardError::ImageConversion))
     {
-      debug!("Loaded DIB from clipboard. Converting to PNG...");
+      trace!("Loaded DIB from clipboard. Converting to PNG...");
 
       Ok(Some(png_bytes))
     } else {
@@ -157,7 +163,6 @@ impl WinObserver {
           if files_list.is_empty() {
             Err(ErrorWrapper::EmptyContent)
           } else {
-            debug!("Found file list");
             Ok(Some(files_list))
           }
         } else {
@@ -176,12 +181,7 @@ impl WinObserver {
 
     for (name, id) in self.custom_formats.iter() {
       if let Some(bytes) = Self::extract_clipboard_format(&available_formats, id.get(), max_size)? {
-        debug!("Found content with custom format `{name}`");
-
-        return Ok(Some(Body::Custom {
-          name: name.clone(),
-          data: bytes,
-        }));
+        return Ok(Some(Body::new_custom(name.clone(), bytes)));
       }
     }
 
@@ -189,15 +189,14 @@ impl WinObserver {
       let image_path = if let Some(mut files_list) = self.extract_files_list(&available_formats)?
         && files_list.len() == 1
       {
-        Some(files_list.remove(0))
+        let img_path = files_list.remove(0);
+
+        Some(img_path)
       } else {
         None
       };
 
-      Ok(Some(Body::Image(ClipboardImage {
-        bytes: image_bytes,
-        path: image_path,
-      })))
+      Ok(Some(Body::new_image(image_bytes, image_path)))
     } else if let Some(mut files_list) = self.extract_files_list(&available_formats)? {
       // If there is just one file in the list and it's an image,
       // we save it directly as an image
@@ -216,16 +215,11 @@ impl WinObserver {
       //
       // Only if all of these are true, we save it as an image
       {
-        debug!("Found file path with image format. Processing it as an image...");
-
         let image_path = files_list.remove(0);
 
-        Ok(Some(Body::Image(ClipboardImage {
-          bytes: png_bytes,
-          path: Some(image_path),
-        })))
+        Ok(Some(Body::new_image(png_bytes, Some(image_path))))
       } else {
-        Ok(Some(Body::FileList(files_list)))
+        Ok(Some(Body::new_file_list(files_list)))
       }
     } else {
       let mut text = String::new();
@@ -233,13 +227,9 @@ impl WinObserver {
       if let Some(html_parser) = self.html_format
         && let Ok(_) = html_parser.read_clipboard(&mut text)
       {
-        debug!("Extracted HTML content from clipboard");
-
-        Ok(Some(Body::Html(text)))
+        Ok(Some(Body::new_html(text)))
       } else if let Ok(_num_bytes) = formats::Unicode.read_clipboard(&mut text) {
-        debug!("Extracted plain text from clipboard");
-
-        Ok(Some(Body::PlainText(text)))
+        Ok(Some(Body::new_text(text)))
       } else {
         Ok(None)
       }
@@ -256,14 +246,11 @@ impl WinObserver {
 
       // Non-fatal errors, we just return None
       Err(ErrorWrapper::EmptyContent) => {
-        debug!("Found empty content, skipping it...");
+        trace!("Found empty content. Skipping it...");
         Ok(None)
       }
 
-      Err(ErrorWrapper::SizeTooLarge) => {
-        debug!("Found content beyond allowed size, skipping it...");
-        Ok(None)
-      }
+      Err(ErrorWrapper::SizeTooLarge) => Ok(None),
 
       Err(ErrorWrapper::FormatUnavailable) => Ok(None),
 

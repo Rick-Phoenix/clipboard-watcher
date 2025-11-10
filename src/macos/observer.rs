@@ -7,7 +7,7 @@ use std::{
   time::Duration,
 };
 
-use log::{debug, error, info};
+use log::{debug, error, info, trace};
 use objc2::{
   rc::{autoreleasepool, Retained},
   ClassType,
@@ -22,6 +22,7 @@ use crate::{
   body::*,
   error::{ClipboardError, ErrorWrapper},
   image::*,
+  logging::*,
   observer::Observer,
 };
 
@@ -106,6 +107,11 @@ impl OSXObserver {
           // Check the size limit. If exceeded, return Err to signal an early exit.
           if let Some(limit) = max_size {
             if size > limit as usize {
+              debug!(
+                "Found content with {:.2}MB size, beyond maximum allowed size. Skipping it...",
+                bytes_to_mb(size)
+              );
+
               return Err(ErrorWrapper::SizeTooLarge);
             }
           }
@@ -154,7 +160,6 @@ impl OSXObserver {
           // Found list but it was empty, trigger early exit
           Err(ErrorWrapper::EmptyContent)
         } else {
-          debug!("Found file list");
           Ok(Some(files))
         }
       }
@@ -168,12 +173,13 @@ impl OSXObserver {
     if let Some(png_bytes) =
       unsafe { self.extract_clipboard_format(NSPasteboardTypePNG, max_size)? }
     {
-      debug!("Loaded png from clipboard");
+      trace!("Loaded PNG from clipboard");
+
       Ok(Some(png_bytes))
     } else if let Some(tiff_bytes) =
       unsafe { self.extract_clipboard_format(NSPasteboardTypeTIFF, max_size)? }
     {
-      debug!("Loaded TIFF from clipboard. Converting to PNG...");
+      trace!("Loaded TIFF from clipboard. Converting to PNG...");
 
       if let Some(png_bytes) = convert_tiff_to_png(&tiff_bytes) {
         Ok(Some(png_bytes))
@@ -218,12 +224,7 @@ impl OSXObserver {
         let format_nsstring = NSString::from_str(name.as_ref());
         // For custom formats, we check the size as well as the presence
         if let Some(bytes) = self.extract_clipboard_format(&format_nsstring, max_size)? {
-          debug!("Found content with custom format `{name}`");
-
-          return Ok(Some(Body::Custom {
-            name: name.clone(),
-            data: bytes,
-          }));
+          return Ok(Some(Body::new_custom(name.clone(), bytes)));
         }
       }
 
@@ -240,10 +241,7 @@ impl OSXObserver {
           None
         };
 
-        Ok(Some(Body::Image(ClipboardImage {
-          bytes: image_bytes,
-          path: image_path,
-        })))
+        Ok(Some(Body::new_image(image_bytes, image_path)))
       } else if let Some(mut files_list) = self.extract_files_list()? {
         // We check if there is only one file in the list
         if files_list.len() == 1
@@ -259,21 +257,16 @@ impl OSXObserver {
         {
           let image_path = files_list.remove(0);
 
-          Ok(Some(Body::Image(ClipboardImage {
-            bytes: png_bytes,
-            path: Some(image_path),
-          })))
+          Ok(Some(Body::new_image(png_bytes, Some(image_path))))
         } else {
-          Ok(Some(Body::FileList(files_list)))
+          Ok(Some(Body::new_file_list(files_list)))
         }
       } else {
         if let Some(html) = unsafe { self.string_from_type(NSPasteboardTypeHTML)? } {
-          debug!("Extracted HTML content from clipboard");
-          return Ok(Some(Body::Html(html)));
+          return Ok(Some(Body::new_html(html)));
         }
-        if let Some(plain) = unsafe { self.string_from_type(NSPasteboardTypeString)? } {
-          debug!("Extracted plain text from clipboard");
-          return Ok(Some(Body::PlainText(plain)));
+        if let Some(plain_text) = unsafe { self.string_from_type(NSPasteboardTypeString)? } {
+          return Ok(Some(Body::new_text(plain_text)));
         }
 
         Ok(None)
@@ -288,14 +281,11 @@ impl OSXObserver {
 
       // Non-fatal errors, we just return None
       Err(ErrorWrapper::EmptyContent) => {
-        debug!("Found empty content, skipping it...");
+        debug!("Found empty content. Skipping it...");
         Ok(None)
       }
 
-      Err(ErrorWrapper::SizeTooLarge) => {
-        debug!("Found content beyond allowed size, skipping it...");
-        Ok(None)
-      }
+      Err(ErrorWrapper::SizeTooLarge) => Ok(None),
 
       Err(ErrorWrapper::FormatUnavailable) => Ok(None),
 

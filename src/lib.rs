@@ -48,6 +48,7 @@ mod event_listener;
 pub(crate) mod image;
 #[cfg(target_os = "linux")]
 mod linux;
+pub(crate) mod logging;
 #[cfg(target_os = "macos")]
 mod macos;
 mod observer;

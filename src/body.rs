@@ -5,9 +5,9 @@ use std::{
 };
 
 use futures::channel::mpsc::Sender;
-use log::error;
+use log::{debug, error};
 
-use crate::{error::ClipboardResult, stream::StreamId};
+use crate::{error::ClipboardResult, logging::bytes_to_mb, stream::StreamId};
 
 /// The content extracted from the clipboard.
 ///
@@ -33,6 +33,53 @@ pub enum Body {
   Custom { name: Arc<str>, data: Vec<u8> },
 }
 
+impl Body {
+  pub(crate) fn new_image(bytes: Vec<u8>, path: Option<PathBuf>) -> Self {
+    let image = ClipboardImage { bytes, path };
+
+    if log::log_enabled!(log::Level::Debug) {
+      image.log_info();
+    }
+
+    Self::Image(image)
+  }
+
+  pub(crate) fn new_custom(name: Arc<str>, data: Vec<u8>) -> Self {
+    if log::log_enabled!(log::Level::Debug) {
+      debug!(
+        "Found content with custom format `{name}`. Size: {:.2}MB",
+        bytes_to_mb(data.len())
+      );
+    }
+
+    Self::Custom { name, data }
+  }
+
+  pub(crate) fn new_file_list(files: Vec<PathBuf>) -> Self {
+    if log::log_enabled!(log::Level::Debug) {
+      debug!("Found file list with {} elements: {files:?}", files.len());
+    }
+
+    Self::FileList(files)
+  }
+
+  pub(crate) fn new_html(html: String) -> Self {
+    if log::log_enabled!(log::Level::Debug) {
+      debug!("Found html content");
+    }
+
+    Self::Html(html)
+  }
+
+  pub(crate) fn new_text(text: String) -> Self {
+    if log::log_enabled!(log::Level::Debug) {
+      debug!("Found text content");
+    }
+
+    Self::PlainText(text)
+  }
+}
+
 /// An image from the clipboard, normalized to the PNG format.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -47,6 +94,21 @@ impl ClipboardImage {
   /// Checks whether the clipboard has a file path attached to it.
   pub fn has_path(&self) -> bool {
     self.path.is_some()
+  }
+
+  pub(crate) fn log_info(&self) {
+    if let Some(path) = &self.path {
+      debug!(
+        "Found image. Size: {:.2}MB, Path: {}",
+        bytes_to_mb(self.bytes.len()),
+        path.display()
+      );
+    } else {
+      debug!(
+        "Found image. Size: {:.2}MB, Path: None",
+        bytes_to_mb(self.bytes.len())
+      );
+    }
   }
 }
 
