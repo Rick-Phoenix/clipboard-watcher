@@ -127,7 +127,7 @@ impl Observer for LinuxObserver {
 
           body_senders.send_all(Err(ClipboardError::MonitorFailed(e.to_string())));
 
-          // Fatal error, close the stream
+          error!("Fatal error, terminating clipboard watcher");
           break;
         }
       };
