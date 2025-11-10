@@ -45,6 +45,8 @@ struct XServerContext {
   atoms: Atoms,
 }
 
+const DEFAULT_TIMEOUT: Duration = Duration::from_secs(3);
+
 impl LinuxObserver {
   pub(super) fn new(
     stop: Arc<AtomicBool>,
@@ -124,6 +126,8 @@ impl Observer for LinuxObserver {
           error!("{e}");
 
           body_senders.send_all(Err(ClipboardError::MonitorFailed(e.to_string())));
+
+          // Fatal error, close the stream
           break;
         }
       };
@@ -155,7 +159,6 @@ impl LinuxObserver {
           *atom,
           &available_formats,
           self.max_size,
-          Duration::from_secs(2),
         )?;
 
         return Ok(Some(Body::Custom {
@@ -170,7 +173,6 @@ impl LinuxObserver {
         self.server_context.atoms.PNG_MIME,
         &available_formats,
         self.max_size,
-        Duration::from_secs(2),
       )?;
 
       let path = if let Ok(mut files) = self.server_context.extract_file_list(&available_formats) && files.len() == 1 {
@@ -199,7 +201,6 @@ impl LinuxObserver {
         self.server_context.atoms.HTML,
         &available_formats,
         self.max_size,
-        Duration::from_secs(2),
       )?;
 
       let html = String::from_utf8_lossy(&bytes);
@@ -209,12 +210,10 @@ impl LinuxObserver {
       .server_context
       .available_text_format(&available_formats)
     {
-      let bytes = self.server_context.extract_clipboard_content(
-        format,
-        &available_formats,
-        self.max_size,
-        Duration::from_secs(2),
-      )?;
+      let bytes =
+        self
+          .server_context
+          .extract_clipboard_content(format, &available_formats, self.max_size)?;
 
       let text = String::from_utf8_lossy(&bytes);
 
@@ -272,19 +271,14 @@ impl XServerContext {
     &self,
     format_to_read: Atom,
     property_name: Atom,
-    timeout: Duration,
   ) -> Result<Vec<u8>, ErrorWrapper> {
-    let property_atom = self.request_property(format_to_read, property_name, timeout)?;
+    let property_atom = self.request_property(format_to_read, property_name)?;
 
-    self.read_property_data(property_atom, timeout)
+    self.read_property_data(property_atom)
   }
 
   fn get_available_formats(&self) -> Result<Vec<Atom>, ErrorWrapper> {
-    let prop_reply = self.request_and_read_property(
-      self.atoms.TARGETS,
-      self.atoms.METADATA,
-      Duration::from_secs(2),
-    )?;
+    let prop_reply = self.request_and_read_property(self.atoms.TARGETS, self.atoms.METADATA)?;
 
     let ignored_formats = [
       self.atoms.TIMESTAMP,
@@ -343,7 +337,6 @@ impl XServerContext {
     &self,
     format_to_request: Atom,
     property_name: Atom,
-    timeout: Duration,
   ) -> Result<Atom, ErrorWrapper> {
     let start_time = Instant::now();
     let cookie = self
@@ -363,7 +356,7 @@ impl XServerContext {
     self.conn.flush().map_err(to_read_error)?;
 
     loop {
-      if start_time.elapsed() > timeout {
+      if start_time.elapsed() > DEFAULT_TIMEOUT {
         return Err(to_read_error("Timeout waiting for SelectionNotify event"));
       }
 
@@ -411,11 +404,7 @@ impl XServerContext {
     Ok(prop_reply.bytes_after)
   }
 
-  fn read_property_data(
-    &self,
-    property_atom: Atom,
-    timeout: Duration,
-  ) -> Result<Vec<u8>, ErrorWrapper> {
+  fn read_property_data(&self, property_atom: Atom) -> Result<Vec<u8>, ErrorWrapper> {
     let start_time = Instant::now();
     let mut buffer = Vec::new();
 
@@ -438,7 +427,7 @@ impl XServerContext {
         .map_err(to_read_error)?;
 
       loop {
-        if start_time.elapsed() > timeout {
+        if start_time.elapsed() > DEFAULT_TIMEOUT {
           return Err(to_read_error("Timeout during INCR transfer"));
         }
 
@@ -477,12 +466,7 @@ impl XServerContext {
   }
 
   fn extract_file_list(&self, available_formats: &[Atom]) -> Result<Vec<PathBuf>, ErrorWrapper> {
-    let raw_data = self.extract_clipboard_content(
-      self.atoms.FILE_LIST,
-      available_formats,
-      None,
-      Duration::from_secs(2),
-    )?;
+    let raw_data = self.extract_clipboard_content(self.atoms.FILE_LIST, available_formats, None)?;
 
     Ok(paths_from_uri_list(raw_data))
   }
@@ -492,12 +476,11 @@ impl XServerContext {
     format_to_read: Atom,
     available_formats: &[Atom],
     max_size: Option<u32>,
-    timeout: Duration,
   ) -> Result<Vec<u8>, ErrorWrapper> {
     // 1. Try the cheap size verification first
     if let Some(max_size) = max_size && available_formats.contains(&self.atoms.LENGTH) {
       let size_bytes =
-        self.request_and_read_property(self.atoms.LENGTH, self.atoms.METADATA, timeout)?;
+        self.request_and_read_property(self.atoms.LENGTH, self.atoms.METADATA, )?;
 
       if size_bytes.len() >= 4 {
         let size = u32::from_ne_bytes(size_bytes[0..4].try_into().unwrap());
@@ -510,13 +493,13 @@ impl XServerContext {
           return Err(ErrorWrapper::SizeTooLarge);
         }
         // Size is OK, now we must do a *second* request for the actual data.
-        return self.request_and_read_property(format_to_read, self.atoms.DATA, timeout);
+        return self.request_and_read_property(format_to_read, self.atoms.DATA, );
       }
     }
 
     // 2. If unsuccessful, use the more inefficient method to try and read the size.
     // Make the request, but don't read the data yet.
-    let data_prop = self.request_property(format_to_read, self.atoms.DATA, timeout)?;
+    let data_prop = self.request_property(format_to_read, self.atoms.DATA)?;
 
     if let Some(max_size) = max_size {
       // 3. Use the size helper to "peek" at the size.
@@ -540,7 +523,7 @@ impl XServerContext {
     }
 
     // Size is OK! Proceed to read the full data from the waiting property.
-    self.read_property_data(data_prop, timeout)
+    self.read_property_data(data_prop)
   }
 
   fn intern_custom_formats(
