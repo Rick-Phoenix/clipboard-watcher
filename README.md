@@ -8,16 +8,15 @@ It allows for customization of the listener's parameters, such as:
 
 - Custom formats
 - Polling interval
-- Maximum size (items beyond this size are not processed)
-- Maximum image size
+- Maximum size (custom format items or images beyond this size are not processed)
 
 # Supported Formats
 
 - HTML
 - Text
 - File list
-- Custom formats
 - Images (normalized to PNG)
+- Custom formats
 
 # Example
 
@@ -60,6 +59,7 @@ async fn main() {
 
 - Windows
 - Macos
+- Linux (requires x11/xWayland)
 
 ## Credits And Licenses
 
