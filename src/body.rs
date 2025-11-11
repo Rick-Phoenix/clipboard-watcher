@@ -5,6 +5,7 @@ use std::{
 };
 
 use futures::channel::mpsc::Sender;
+use image::DynamicImage;
 use log::{debug, error};
 
 use crate::{error::ClipboardResult, logging::bytes_to_mb, stream::StreamId};
@@ -34,8 +35,16 @@ pub enum Body {
 }
 
 impl Body {
-  pub(crate) fn new_image(bytes: Vec<u8>, path: Option<PathBuf>) -> Self {
-    let image = ClipboardImage { bytes, path };
+  pub(crate) fn new_image(image: DynamicImage, path: Option<PathBuf>) -> Self {
+    let rgb = image.to_rgb8();
+
+    let (width, height) = rgb.dimensions();
+    let image = ClipboardImage {
+      bytes: rgb.into_raw(),
+      path,
+      width,
+      height,
+    };
 
     if log::log_enabled!(log::Level::Debug) {
       image.log_info();
@@ -84,8 +93,10 @@ impl Body {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ClipboardImage {
-  /// The bytes that compose the image, encoded in the PNG format.
+  /// The rgb8 bytes of the image.
   pub bytes: Vec<u8>,
+  pub width: u32,
+  pub height: u32,
   /// The path to the image's file (if one can be detected).
   pub path: Option<PathBuf>,
 }

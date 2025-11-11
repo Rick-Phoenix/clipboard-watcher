@@ -44,4 +44,10 @@ pub(crate) enum ErrorWrapper {
   ReadError(ClipboardError),
 }
 
+impl From<ClipboardError> for ErrorWrapper {
+  fn from(value: ClipboardError) -> Self {
+    Self::ReadError(value)
+  }
+}
+
 pub type ClipboardResult = Result<Arc<Body>, ClipboardError>;

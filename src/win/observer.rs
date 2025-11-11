@@ -10,12 +10,14 @@ use std::{
 };
 
 use clipboard_win::{Clipboard, Getter, formats};
+use image::DynamicImage;
 use log::{debug, error, info, trace};
 
 use crate::{
   Body,
   body::BodySenders,
   error::{ClipboardError, ErrorWrapper},
+  image::{load_dib, load_png},
   logging::bytes_to_mb,
   observer::Observer,
 };
@@ -82,38 +84,38 @@ impl WinObserver {
     }
   }
 
-  pub(super) fn extract_image_bytes(
+  pub(super) fn extract_image(
     &self,
     available_formats: &[u32],
-  ) -> Result<Option<Vec<u8>>, ErrorWrapper> {
+  ) -> Result<Option<DynamicImage>, ErrorWrapper> {
     use clipboard_win::formats;
-
-    use crate::image::convert_dib_to_png;
 
     let max_size = self.max_size;
 
     if let Some(png_bytes) =
       Self::extract_clipboard_format(available_formats, self.png_format.get(), max_size)?
     {
-      trace!("Loaded PNG from clipboard");
+      trace!("Found image in PNG format");
 
-      Ok(Some(png_bytes))
+      let image = load_png(&png_bytes)?;
+
+      Ok(Some(image))
     } else if let Some(bytes) =
       Self::extract_clipboard_format(available_formats, formats::CF_DIBV5, max_size)?
-      && let Ok(png_bytes) =
-        convert_dib_to_png(&bytes).ok_or(ErrorWrapper::ReadError(ClipboardError::ImageConversion))
     {
-      trace!("Loaded DIBV5 from clipboard. Converting to PNG...");
+      trace!("Found image in CF_DIBV5 format");
 
-      Ok(Some(png_bytes))
+      let image = load_dib(&bytes)?;
+
+      Ok(Some(image))
     } else if let Some(bytes) =
       Self::extract_clipboard_format(available_formats, formats::CF_DIB, max_size)?
-      && let Ok(png_bytes) =
-        convert_dib_to_png(&bytes).ok_or(ErrorWrapper::ReadError(ClipboardError::ImageConversion))
     {
-      trace!("Loaded DIB from clipboard. Converting to PNG...");
+      trace!("Found image in CF_DIB format");
 
-      Ok(Some(png_bytes))
+      let image = load_dib(&bytes)?;
+
+      Ok(Some(image))
     } else {
       Ok(None)
     }
@@ -152,7 +154,7 @@ impl WinObserver {
       }
     }
 
-    if let Some(image_bytes) = self.extract_image_bytes(&available_formats)? {
+    if let Some(image) = self.extract_image(&available_formats)? {
       let image_path = if let Some(mut files_list) = self.extract_files_list(&available_formats)?
         && files_list.len() == 1
       {
@@ -163,7 +165,7 @@ impl WinObserver {
         None
       };
 
-      Ok(Some(Body::new_image(image_bytes, image_path)))
+      Ok(Some(Body::new_image(image, image_path)))
     } else if let Some(files_list) = self.extract_files_list(&available_formats)? {
       Ok(Some(Body::new_file_list(files_list)))
     } else {

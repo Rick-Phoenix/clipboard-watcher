@@ -7,6 +7,7 @@ use std::{
   time::Duration,
 };
 
+use image::ImageFormat;
 use log::{debug, error, info, trace};
 use objc2::{
   rc::{autoreleasepool, Retained},
@@ -163,26 +164,26 @@ impl OSXObserver {
     }
   }
 
-  pub(super) fn extract_image_bytes(&self) -> Result<Option<Vec<u8>>, ErrorWrapper> {
+  pub(super) fn extract_image(&self) -> Result<Option<image::DynamicImage>, ErrorWrapper> {
     let max_size = self.max_size;
 
     if let Some(png_bytes) =
       unsafe { self.extract_clipboard_format(NSPasteboardTypePNG, max_size)? }
     {
-      trace!("Loaded PNG from clipboard");
+      trace!("Found image in PNG format");
 
-      Ok(Some(png_bytes))
+      let image = load_png(&png_bytes)?;
+
+      Ok(Some(image))
     } else if let Some(tiff_bytes) =
       unsafe { self.extract_clipboard_format(NSPasteboardTypeTIFF, max_size)? }
     {
-      trace!("Loaded TIFF from clipboard. Converting to PNG...");
+      trace!("Found image in TIFF format");
 
-      if let Some(png_bytes) = convert_tiff_to_png(&tiff_bytes) {
-        Ok(Some(png_bytes))
-      } else {
-        // We got the content but failed to extract it, trigger early exit
-        Err(ErrorWrapper::ReadError(ClipboardError::ImageConversion))
-      }
+      let image = image::load_from_memory_with_format(&tiff_bytes, ImageFormat::Png)
+        .map_err(|e| ClipboardError::ReadError(format!("Failed to load TIFF image: {e}")))?;
+
+      Ok(Some(image))
     } else {
       Ok(None)
     }
@@ -223,7 +224,7 @@ impl OSXObserver {
         }
       }
 
-      if let Some(image_bytes) = self.extract_image_bytes()? {
+      if let Some(image) = self.extract_image()? {
         // If there is only one path in the file list, which is sometimes emitted by the OS
         // when copying an image, we assign it to the image
         let image_path = if let Some(mut files_list) = self.extract_files_list()? {
@@ -236,8 +237,8 @@ impl OSXObserver {
           None
         };
 
-        Ok(Some(Body::new_image(image_bytes, image_path)))
-      } else if let Some(mut files_list) = self.extract_files_list()? {
+        Ok(Some(Body::new_image(image, image_path)))
+      } else if let Some(files_list) = self.extract_files_list()? {
         Ok(Some(Body::new_file_list(files_list)))
       } else {
         if let Some(html) = unsafe { self.string_from_type(NSPasteboardTypeHTML)? } {
