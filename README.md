@@ -21,9 +21,9 @@ It allows for customization of the listener's parameters, such as:
 # Example
 
 ```rust
-use clipboard_stream::{Body, ClipboardEventListener};
+use clipboard_watcher::{Body, ClipboardEventListener};
 use futures::StreamExt;
-use log::LevelFilter;
+use log::Level;
 
 #[tokio::main]
 async fn main() {
@@ -31,25 +31,37 @@ async fn main() {
 
   let mut stream = event_listener.new_stream(32);
 
-  env_logger::builder().filter_level(LevelFilter::max()).init();
+  env_logger::init();
 
   while let Some(result) = stream.next().await {
-    match result {
-      Ok(content) => {
-        match content.as_ref() {
-          Body::PlainText(v) => println!("Received string:\n{v}"),
-          Body::Image(image) => {
-            println!("Received image");
-            if let Some(path) = &image.path {
-              println!("Image Path: {path:#?}");
+    // Can enable logging with RUST_LOG
+    if !log::log_enabled!(Level::Debug) {
+      match result {
+        Ok(content) => {
+          match content.as_ref() {
+            Body::PlainText(v) => println!("Received string:\n{v}"),
+            Body::RawImage(image) => {
+              println!("Received raw image");
+              if let Some(path) = &image.path {
+                println!("Image Path: {}", path.display());
+              }
             }
-          }
-          Body::FileList(files) => println!("Received files: {files:#?}"),
-          Body::Html(html) => println!("Received html: \n{html}"),
-          _ => {}
-        };
+            Body::PngImage {
+              path,
+              bytes: _bytes,
+            } => {
+              println!("Received png image");
+              if let Some(path) = &path {
+                println!("Image Path: {}", path.display());
+              }
+            }
+            Body::FileList(files) => println!("Received files: {files:#?}"),
+            Body::Html(html) => println!("Received html: \n{html}"),
+            Body::Custom { .. } => {}
+          };
+        }
+        Err(e) => eprintln!("Got an error: {e}"),
       }
-      Err(e) => eprintln!("{e}"),
     }
   }
 }
