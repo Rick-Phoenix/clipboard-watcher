@@ -74,13 +74,18 @@ impl WinObserver {
   ) -> Result<Option<Vec<u8>>, ErrorWrapper> {
     use clipboard_win::formats;
 
-    match access_format(available_formats, format_id, max_bytes)
-      .is_ok()
-      .then(|| clipboard_win::get(formats::RawData(format_id)).ok())
-      .flatten()
-    {
-      Some(data) => Ok(Some(data)),
-      None => Ok(None),
+    match can_access_format(available_formats, format_id, max_bytes)? {
+      true => {
+        let data = clipboard_win::get(formats::RawData(format_id))
+          .map_err(|e| ClipboardError::ReadError(e.to_string()))?;
+
+        if data.is_empty() {
+          Err(ErrorWrapper::EmptyContent)
+        } else {
+          Ok(Some(data))
+        }
+      }
+      false => Ok(None),
     }
   }
 
@@ -260,18 +265,18 @@ fn content_is_not_empty(content: &str) -> Result<bool, ErrorWrapper> {
 }
 
 // We use the error wrapper to trigger early exit in case a format is present but not valid, to avoid checking other formats
-fn access_format(
+fn can_access_format(
   available_formats: &[u32],
   format_id: u32,
   max_bytes: Option<u32>,
-) -> Result<(), ErrorWrapper> {
+) -> Result<bool, ErrorWrapper> {
   match available_formats.contains(&format_id) {
     true => {
       match max_bytes {
         Some(max) => match clipboard_win::size(format_id) {
           Some(size) => {
             if max as usize > size.get() {
-              Ok(())
+              Ok(true)
             } else if size.get() == 0 {
               Err(ErrorWrapper::EmptyContent)
             } else {
@@ -279,16 +284,16 @@ fn access_format(
                 "Found content with {:.2}MB size, beyond maximum allowed size. Skipping it...",
                 bytes_to_mb(size.get())
               );
-              // Invalid side, we use an error to exit early later on
+              // Invalid size, we use an error to exit early later on
               Err(ErrorWrapper::SizeTooLarge)
             }
           }
           // Should be impossible
           None => Err(ErrorWrapper::FormatUnavailable),
         },
-        None => Ok(()),
+        None => Ok(true),
       }
     }
-    false => Err(ErrorWrapper::FormatUnavailable),
+    false => Ok(false),
   }
 }
