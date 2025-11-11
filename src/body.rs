@@ -89,7 +89,7 @@ impl Body {
   }
 }
 
-/// An image from the clipboard, normalized to the PNG format.
+/// An image from the clipboard, normalized to raw rgb8 bytes.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ClipboardImage {

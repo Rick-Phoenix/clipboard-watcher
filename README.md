@@ -15,7 +15,7 @@ It allows for customization of the listener's parameters, such as:
 - HTML
 - Text
 - File list
-- Images (normalized to PNG)
+- Images (normalized to raw rgb8)
 - Custom formats
 
 # Example
