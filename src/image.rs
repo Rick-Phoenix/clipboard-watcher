@@ -53,7 +53,9 @@ pub(crate) fn convert_file_to_png(path: &Path) -> Option<Vec<u8>> {
   Some(png_buffer)
 }
 
-const IMAGE_FORMATS: [&str; 8] = ["png", "jpg", "jpeg", "gif", "bmp", "webp", "svg", "ico"];
+const IMAGE_FORMATS: [&str; 11] = [
+  "png", "jpg", "jpeg", "gif", "bmp", "webp", "ico", "tiff", "pnm", "tga", "hdr",
+];
 
 pub(crate) fn file_is_image(path: &Path) -> bool {
   path
