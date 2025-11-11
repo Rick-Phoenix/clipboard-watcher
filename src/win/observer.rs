@@ -11,7 +11,7 @@ use std::{
 
 use clipboard_win::{Clipboard, Getter, formats};
 use image::DynamicImage;
-use log::{debug, error, info, trace};
+use log::{debug, error, info, trace, warn};
 
 use crate::{
   Body,
@@ -229,7 +229,7 @@ impl Observer for WinObserver {
               body_senders.send_all(Ok(Arc::new(body)));
             }
             Err(e) => {
-              error!("{e}");
+              warn!("{e}");
 
               body_senders.send_all(Err(e));
             }

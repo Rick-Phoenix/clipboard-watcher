@@ -8,7 +8,7 @@ use std::{
 };
 
 use image::ImageFormat;
-use log::{debug, error, info, trace};
+use log::{debug, info, trace, warn};
 use objc2::{
   rc::{autoreleasepool, Retained},
   ClassType,
@@ -73,7 +73,7 @@ impl Observer for OSXObserver {
         match self.get_clipboard_content() {
           Ok(Some(content)) => body_senders.send_all(Ok(Arc::new(content))),
           Err(e) => {
-            error!("{e}");
+            warn!("{e}");
             body_senders.send_all(Err(e));
           }
           // Found content but ignored it (empty or beyond allowed size)

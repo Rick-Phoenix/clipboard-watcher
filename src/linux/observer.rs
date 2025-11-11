@@ -9,7 +9,7 @@ use std::{
   time::{Duration, Instant},
 };
 
-use log::{debug, error, info, trace};
+use log::{debug, error, info, trace, warn};
 use percent_encoding::percent_decode;
 use x11rb::{
   connection::Connection,
@@ -116,7 +116,7 @@ impl Observer for LinuxObserver {
 
               // Read error
               Err(e) => {
-                error!("{e}");
+                warn!("{e}");
 
                 body_senders.send_all(Err(e));
               }
