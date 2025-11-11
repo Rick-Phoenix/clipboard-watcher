@@ -180,7 +180,7 @@ impl OSXObserver {
     {
       trace!("Found image in TIFF format");
 
-      let image = image::load_from_memory_with_format(&tiff_bytes, ImageFormat::Png)
+      let image = image::load_from_memory_with_format(&tiff_bytes, ImageFormat::Tiff)
         .map_err(|e| ClipboardError::ReadError(format!("Failed to load TIFF image: {e}")))?;
 
       Ok(Some(image))
