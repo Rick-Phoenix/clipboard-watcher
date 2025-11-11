@@ -155,15 +155,11 @@ impl OSXObserver {
     });
 
     match files {
-      Some(files) => {
-        if files.is_empty() {
-          // Found list but it was empty, trigger early exit
-          Err(ErrorWrapper::EmptyContent)
-        } else {
-          Ok(Some(files))
-        }
-      }
-      None => Ok(None),
+      Some(files) if !files.is_empty() => Ok(Some(files)),
+      // Macos api returns an empty list if no matching objects
+      // were found, but it doesn't mean the format was matched
+      // so we must not trigger an early exit
+      _ => Ok(None),
     }
   }
 
