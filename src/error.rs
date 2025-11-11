@@ -26,9 +26,6 @@ pub enum ClipboardError {
 
   #[error("The content of the clipboard did not match any supported format")]
   NoMatchingFormat,
-
-  #[error("Could not convert clipboard image to png format")]
-  ImageConversion,
 }
 
 impl From<Infallible> for ClipboardError {
