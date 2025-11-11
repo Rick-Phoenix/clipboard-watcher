@@ -29,17 +29,42 @@ use crate::{error::ClipboardResult, logging::bytes_to_mb, stream::StreamId};
 pub enum Body {
   Html(String),
   PlainText(String),
-  Image(ClipboardImage),
+  RawImage(RawImage),
+  PngImage {
+    bytes: Vec<u8>,
+    path: Option<PathBuf>,
+  },
   FileList(Vec<PathBuf>),
-  Custom { name: Arc<str>, data: Vec<u8> },
+  Custom {
+    name: Arc<str>,
+    data: Vec<u8>,
+  },
 }
 
 impl Body {
+  pub(crate) fn new_png(bytes: Vec<u8>, path: Option<PathBuf>) -> Self {
+    if log::log_enabled!(log::Level::Debug) {
+      if let Some(path) = &path {
+        debug!(
+          "Found PNG image. Size: {:.2}MB, Path: {}",
+          bytes_to_mb(bytes.len()),
+          path.display()
+        );
+      } else {
+        debug!(
+          "Found PNG image. Size: {:.2}MB, Path: None",
+          bytes_to_mb(bytes.len())
+        );
+      };
+    }
+
+    Self::PngImage { bytes, path }
+  }
   pub(crate) fn new_image(image: DynamicImage, path: Option<PathBuf>) -> Self {
     let rgb = image.into_rgb8();
 
     let (width, height) = rgb.dimensions();
-    let image = ClipboardImage {
+    let image = RawImage {
       bytes: rgb.into_raw(),
       path,
       width,
@@ -50,7 +75,7 @@ impl Body {
       image.log_info();
     }
 
-    Self::Image(image)
+    Self::RawImage(image)
   }
 
   pub(crate) fn new_custom(name: Arc<str>, data: Vec<u8>) -> Self {
@@ -92,16 +117,18 @@ impl Body {
 /// An image from the clipboard, normalized to raw rgb8 bytes.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct ClipboardImage {
+pub struct RawImage {
   /// The rgb8 bytes of the image.
   pub bytes: Vec<u8>,
+  /// The width of the image
   pub width: u32,
+  /// The height of the image
   pub height: u32,
   /// The path to the image's file (if one can be detected).
   pub path: Option<PathBuf>,
 }
 
-impl ClipboardImage {
+impl RawImage {
   /// Checks whether the clipboard has a file path attached to it.
   pub fn has_path(&self) -> bool {
     self.path.is_some()
@@ -110,13 +137,13 @@ impl ClipboardImage {
   pub(crate) fn log_info(&self) {
     if let Some(path) = &self.path {
       debug!(
-        "Found image. Size: {:.2}MB, Path: {}",
+        "Found raw image. Size: {:.2}MB, Path: {}",
         bytes_to_mb(self.bytes.len()),
         path.display()
       );
     } else {
       debug!(
-        "Found image. Size: {:.2}MB, Path: None",
+        "Found raw image. Size: {:.2}MB, Path: None",
         bytes_to_mb(self.bytes.len())
       );
     }

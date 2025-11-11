@@ -45,7 +45,6 @@ mod body;
 mod driver;
 pub mod error;
 mod event_listener;
-pub(crate) mod image;
 #[cfg(target_os = "linux")]
 mod linux;
 pub(crate) mod logging;

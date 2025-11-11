@@ -25,7 +25,6 @@ use x11rb::{
 use crate::{
   body::BodySenders,
   error::{ClipboardError, ErrorWrapper},
-  image::load_png,
   logging::bytes_to_mb,
   observer::Observer,
   Body,
@@ -180,9 +179,7 @@ impl LinuxObserver {
         None
       };
 
-      let image = load_png(&bytes)?;
-
-      Ok(Some(Body::new_image(image, path)))
+      Ok(Some(Body::new_png(bytes, path)))
     } else if available_formats.contains(&self.server_context.atoms.FILE_LIST) {
       let files = self.server_context.extract_file_list(&available_formats)?;
 

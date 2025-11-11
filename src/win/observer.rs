@@ -3,23 +3,22 @@ use std::{
   num::NonZeroU32,
   path::PathBuf,
   sync::{
-    atomic::{AtomicBool, Ordering},
     Arc,
+    atomic::{AtomicBool, Ordering},
   },
   time::Duration,
 };
 
-use clipboard_win::{formats, Clipboard, Getter};
+use clipboard_win::{Clipboard, Getter, formats};
 use image::DynamicImage;
 use log::{debug, error, info, trace, warn};
 
 use crate::{
+  Body,
   body::BodySenders,
   error::{ClipboardError, ErrorWrapper},
-  image::{load_dib, load_png},
   logging::bytes_to_mb,
   observer::Observer,
-  Body,
 };
 
 pub(super) struct WinObserver {
@@ -89,7 +88,11 @@ impl WinObserver {
     }
   }
 
-  pub(super) fn extract_image(
+  fn extract_png(&self, available_formats: &[u32]) -> Result<Option<Vec<u8>>, ErrorWrapper> {
+    Self::extract_clipboard_format(available_formats, self.png_format.get(), self.max_size)
+  }
+
+  pub(super) fn extract_raw_image(
     &self,
     available_formats: &[u32],
   ) -> Result<Option<DynamicImage>, ErrorWrapper> {
@@ -97,19 +100,9 @@ impl WinObserver {
 
     let max_size = self.max_size;
 
-    if let Some(png_bytes) =
-      Self::extract_clipboard_format(available_formats, self.png_format.get(), max_size)?
-    {
-      trace!("Found image in PNG format");
-
-      let image = load_png(&png_bytes)?;
-
-      Ok(Some(image))
-    } else if let Some(bytes) =
+    if let Some(bytes) =
       Self::extract_clipboard_format(available_formats, formats::CF_DIBV5, max_size)?
     {
-      trace!("Found image in CF_DIBV5 format");
-
       let image = load_dib(&bytes)?;
 
       Ok(Some(image))
@@ -159,7 +152,19 @@ impl WinObserver {
       }
     }
 
-    if let Some(image) = self.extract_image(&available_formats)? {
+    if let Some(png_bytes) = self.extract_png(&available_formats)? {
+      let image_path = if let Some(mut files_list) = self.extract_files_list(&available_formats)?
+        && files_list.len() == 1
+      {
+        let img_path = files_list.remove(0);
+
+        Some(img_path)
+      } else {
+        None
+      };
+
+      Ok(Some(Body::new_png(png_bytes, image_path)))
+    } else if let Some(image) = self.extract_raw_image(&available_formats)? {
       let image_path = if let Some(mut files_list) = self.extract_files_list(&available_formats)?
         && files_list.len() == 1
       {
@@ -298,4 +303,18 @@ fn can_access_format(
     }
     false => Ok(false),
   }
+}
+
+pub(crate) fn load_dib(bytes: &[u8]) -> Result<DynamicImage, ClipboardError> {
+  use std::io::Cursor;
+
+  use image::{DynamicImage, codecs::bmp::BmpDecoder};
+
+  let cursor = Cursor::new(bytes);
+
+  let decoder = BmpDecoder::new_without_file_header(cursor)
+    .map_err(|e| ClipboardError::ReadError(format!("Failed to load DIB image: {e}")))?;
+
+  DynamicImage::from_decoder(decoder)
+    .map_err(|e| ClipboardError::ReadError(format!("Failed to load DIB image: {e}")))
 }

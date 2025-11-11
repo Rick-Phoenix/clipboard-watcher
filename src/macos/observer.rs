@@ -22,7 +22,6 @@ use objc2_foundation::{NSArray, NSData, NSDictionary, NSNumber, NSString, NSURL}
 use crate::{
   body::*,
   error::{ClipboardError, ErrorWrapper},
-  image::*,
   logging::*,
   observer::Observer,
 };
@@ -164,18 +163,14 @@ impl OSXObserver {
     }
   }
 
-  pub(super) fn extract_image(&self) -> Result<Option<image::DynamicImage>, ErrorWrapper> {
+  fn extract_png(&self) -> Result<Option<Vec<u8>>, ErrorWrapper> {
+    unsafe { self.extract_clipboard_format(NSPasteboardTypePNG, self.max_size) }
+  }
+
+  pub(super) fn extract_raw_image(&self) -> Result<Option<image::DynamicImage>, ErrorWrapper> {
     let max_size = self.max_size;
 
-    if let Some(png_bytes) =
-      unsafe { self.extract_clipboard_format(NSPasteboardTypePNG, max_size)? }
-    {
-      trace!("Found image in PNG format");
-
-      let image = load_png(&png_bytes)?;
-
-      Ok(Some(image))
-    } else if let Some(tiff_bytes) =
+    if let Some(tiff_bytes) =
       unsafe { self.extract_clipboard_format(NSPasteboardTypeTIFF, max_size)? }
     {
       trace!("Found image in TIFF format");
@@ -224,7 +219,21 @@ impl OSXObserver {
         }
       }
 
-      if let Some(image) = self.extract_image()? {
+      if let Some(png_bytes) = self.extract_png()? {
+        // If there is only one path in the file list, which is sometimes emitted by the OS
+        // when copying an image, we assign it to the image
+        let image_path = if let Some(mut files_list) = self.extract_files_list()? {
+          if files_list.len() == 1 {
+            Some(files_list.remove(0))
+          } else {
+            None
+          }
+        } else {
+          None
+        };
+
+        Ok(Some(Body::new_png(png_bytes, image_path)))
+      } else if let Some(image) = self.extract_raw_image()? {
         // If there is only one path in the file list, which is sometimes emitted by the OS
         // when copying an image, we assign it to the image
         let image_path = if let Some(mut files_list) = self.extract_files_list()? {
