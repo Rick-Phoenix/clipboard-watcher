@@ -164,30 +164,8 @@ impl WinObserver {
       };
 
       Ok(Some(Body::new_image(image_bytes, image_path)))
-    } else if let Some(mut files_list) = self.extract_files_list(&available_formats)? {
-      // If there is just one file in the list and it's an image,
-      // we save it directly as an image
-      use crate::image::{convert_file_to_png, file_is_image};
-
-      // We check if there is just one file
-      if files_list.len() == 1
-        && let Some(path) = files_list.first()
-
-        // Then, if it's an image
-        && file_is_image(path)
-        // Then, if the size is within the allowed range
-        && max_size.is_none_or(|max| path.metadata().is_ok_and(|metadata| max as u64 > metadata.len()))
-        // Then, if the bytes are readable and the conversion to png is successful
-        && let Some(png_bytes) = convert_file_to_png(path)
-      //
-      // Only if all of these are true, we save it as an image
-      {
-        let image_path = files_list.remove(0);
-
-        Ok(Some(Body::new_image(png_bytes, Some(image_path))))
-      } else {
-        Ok(Some(Body::new_file_list(files_list)))
-      }
+    } else if let Some(files_list) = self.extract_files_list(&available_formats)? {
+      Ok(Some(Body::new_file_list(files_list)))
     } else {
       let mut text = String::new();
 

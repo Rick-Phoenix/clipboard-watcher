@@ -238,24 +238,7 @@ impl OSXObserver {
 
         Ok(Some(Body::new_image(image_bytes, image_path)))
       } else if let Some(mut files_list) = self.extract_files_list()? {
-        // We check if there is only one file in the list
-        if files_list.len() == 1
-          && let Some(path) = files_list.first()
-          // Then, if it's an image
-          && file_is_image(path)
-          // Then, if the size is within the allowed range
-          && self.max_size.is_none_or(|max| path.metadata().is_ok_and(|metadata| max as u64 > metadata.len()))
-          // Then, if the bytes are readable and the conversion to png is successful
-          && let Some(png_bytes) = convert_file_to_png(path)
-        //
-        // Only if all of these are true, we save it as an image
-        {
-          let image_path = files_list.remove(0);
-
-          Ok(Some(Body::new_image(png_bytes, Some(image_path))))
-        } else {
-          Ok(Some(Body::new_file_list(files_list)))
-        }
+        Ok(Some(Body::new_file_list(files_list)))
       } else {
         if let Some(html) = unsafe { self.string_from_type(NSPasteboardTypeHTML)? } {
           return Ok(Some(Body::new_html(html)));

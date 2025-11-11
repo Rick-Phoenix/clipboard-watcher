@@ -25,7 +25,6 @@ use x11rb::{
 use crate::{
   body::BodySenders,
   error::{ClipboardError, ErrorWrapper},
-  image::{convert_file_to_png, file_is_image},
   logging::bytes_to_mb,
   observer::Observer,
   Body,
@@ -182,19 +181,9 @@ impl LinuxObserver {
 
       Ok(Some(Body::new_image(bytes, path)))
     } else if available_formats.contains(&self.server_context.atoms.FILE_LIST) {
-      let mut files = self.server_context.extract_file_list(&available_formats)?;
+      let files = self.server_context.extract_file_list(&available_formats)?;
 
-      if files.len() == 1
-          && let Some(path) = files.first()
-          && file_is_image(path)
-          && let Some(png_bytes) = convert_file_to_png(path)
-        {
-          let path = files.remove(0);
-
-          Ok(Some(Body::new_image(png_bytes, Some(path))))
-        } else {
-          Ok(Some(Body::new_file_list(files)))
-        }
+      Ok(Some(Body::new_file_list(files)))
     } else if available_formats.contains(&self.server_context.atoms.HTML) {
       let bytes = self.server_context.extract_clipboard_content(
         self.server_context.atoms.HTML,
