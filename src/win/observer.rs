@@ -3,23 +3,23 @@ use std::{
   num::NonZeroU32,
   path::PathBuf,
   sync::{
-    Arc,
     atomic::{AtomicBool, Ordering},
+    Arc,
   },
   time::Duration,
 };
 
-use clipboard_win::{Clipboard, Getter, formats};
+use clipboard_win::{formats, Clipboard, Getter};
 use image::DynamicImage;
 use log::{debug, error, info, trace, warn};
 
 use crate::{
-  Body,
   body::BodySenders,
   error::{ClipboardError, ErrorWrapper},
   image::{load_dib, load_png},
   logging::bytes_to_mb,
   observer::Observer,
+  Body,
 };
 
 pub(super) struct WinObserver {
@@ -288,7 +288,9 @@ fn can_access_format(
               Err(ErrorWrapper::SizeTooLarge)
             }
           }
-          // Should be impossible
+          // Should be impossible given that the format
+          // is already in the list, but we should trigger
+          // an early exit regardless, as something went wrong
           None => Err(ErrorWrapper::FormatUnavailable),
         },
         None => Ok(true),
