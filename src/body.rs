@@ -36,7 +36,7 @@ pub enum Body {
 
 impl Body {
   pub(crate) fn new_image(image: DynamicImage, path: Option<PathBuf>) -> Self {
-    let rgb = image.to_rgb8();
+    let rgb = image.into_rgb8();
 
     let (width, height) = rgb.dimensions();
     let image = ClipboardImage {
