@@ -8,14 +8,17 @@ It allows for customization of the listener's parameters, such as:
 
 - Custom formats
 - Polling interval
-- Maximum size (custom format items or images beyond this size are not processed)
-
+- Maximum size
+    - The crate will first try to use a cheap method to get the size of the clipboard item, and if the size is beyond the limit, the item will not be processed at all, providing better performance.
+        - For linux/x11, the cheap method may or may not work depending on how the clipboard owner behaves (there isn't a centralized clipboard handler like in windows or macos). If this method is not available, then a less efficient method will be used, where the data is loaded and then its size gets checked.
+        - For macos, there is not a cheap method to check for an item's size (as far as I know), so the best that can be done is to load the item and just discard it if the size is not within the allowed range.
 # Supported Formats
 
 - HTML
 - Text
 - File list
-- Images (normalized to raw rgb8)
+- Png Images
+- Other Images (normalized to raw rgb8)
 - Custom formats
 
 # Example
