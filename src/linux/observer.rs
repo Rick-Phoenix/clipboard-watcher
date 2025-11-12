@@ -573,7 +573,7 @@ impl XServerContext {
   }
 }
 
-// From [arboard](https://github.com/1Password/arboard)
+// From [arboard](https://github.com/1Password/arboard), with modifications
 fn paths_from_uri_list(uri_list: Vec<u8>) -> Vec<PathBuf> {
   uri_list
     .split(|char| *char == b'\n')

@@ -39,7 +39,7 @@ clipboard-win = { version = "5.4", features = ["monitor", "std"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 x11rb = { version = "0.13", features = ["xfixes"] }
-percent-encoding = "2.3.2"
+percent-encoding = "2.3"
 
 [[example]]
 name = "stream"
