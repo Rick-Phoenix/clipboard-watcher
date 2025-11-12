@@ -21,7 +21,7 @@ use crate::{
   observer::Observer,
 };
 
-pub(super) struct WinObserver {
+pub(crate) struct WinObserver {
   stop: Arc<AtomicBool>,
   monitor: clipboard_win::Monitor,
   html_format: clipboard_win::formats::Html,
@@ -32,7 +32,7 @@ pub(super) struct WinObserver {
 }
 
 impl WinObserver {
-  pub(super) fn new(
+  pub(crate) fn new(
     stop: Arc<AtomicBool>,
     monitor: clipboard_win::Monitor,
     custom_formats: Vec<Arc<str>>,
@@ -92,7 +92,7 @@ impl WinObserver {
     Self::extract_clipboard_format(available_formats, self.png_format.get(), self.max_size)
   }
 
-  pub(super) fn extract_raw_image(
+  fn extract_raw_image(
     &self,
     available_formats: &[u32],
   ) -> Result<Option<DynamicImage>, ErrorWrapper> {
@@ -109,8 +109,6 @@ impl WinObserver {
     } else if let Some(bytes) =
       Self::extract_clipboard_format(available_formats, formats::CF_DIB, max_size)?
     {
-      trace!("Found image in CF_DIB format");
-
       let image = load_dib(&bytes)?;
 
       Ok(Some(image))
@@ -119,7 +117,7 @@ impl WinObserver {
     }
   }
 
-  pub(super) fn extract_files_list(
+  fn extract_files_list(
     &self,
     available_formats: &[u32],
   ) -> Result<Option<Vec<PathBuf>>, ErrorWrapper> {
@@ -185,7 +183,7 @@ impl WinObserver {
     }
   }
 
-  pub(super) fn get_clipboard_content(&self) -> Result<Option<Body>, ClipboardError> {
+  fn get_clipboard_content(&self) -> Result<Option<Body>, ClipboardError> {
     let _clipboard =
       Clipboard::new_attempts(10).map_err(|e| ClipboardError::ReadError(e.to_string()))?;
 
@@ -298,7 +296,7 @@ fn can_access_format(
   }
 }
 
-pub(crate) fn load_dib(bytes: &[u8]) -> Result<DynamicImage, ClipboardError> {
+fn load_dib(bytes: &[u8]) -> Result<DynamicImage, ClipboardError> {
   use std::io::Cursor;
 
   use image::{DynamicImage, codecs::bmp::BmpDecoder};

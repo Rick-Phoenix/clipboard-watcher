@@ -60,6 +60,7 @@ impl Body {
 
     Self::PngImage { bytes, path }
   }
+
   pub(crate) fn new_image(image: DynamicImage, path: Option<PathBuf>) -> Self {
     let rgb = image.into_rgb8();
 

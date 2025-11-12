@@ -48,7 +48,7 @@ struct XServerContext {
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(3);
 
 impl LinuxObserver {
-  pub(super) fn new(
+  pub(crate) fn new(
     stop: Arc<AtomicBool>,
     interval: Option<Duration>,
     max_size: Option<u32>,
@@ -136,7 +136,7 @@ impl Observer for LinuxObserver {
 }
 
 impl LinuxObserver {
-  pub(super) fn poll_clipboard(&self) -> Result<Option<Body>, ClipboardError> {
+  fn poll_clipboard(&self) -> Result<Option<Body>, ClipboardError> {
     match self.get_clipboard_content() {
       Ok(Some(content)) => Ok(Some(content)),
 
@@ -214,7 +214,7 @@ impl LinuxObserver {
 
 x11rb::atom_manager! {
   pub Atoms: AtomCookies {
-    // Selection kinds
+    // Atom to select the clipboard as a whole
     CLIPBOARD,
 
     // Ignored formats
@@ -222,6 +222,8 @@ x11rb::atom_manager! {
     SAVE_TARGETS,
     TIMESTAMP,
 
+    // Property slot names (arbitrary, just for organization)
+    //
     // For requesting metadata such as length
     METADATA,
     // For requesting actual clipboard content
@@ -500,7 +502,7 @@ impl XServerContext {
           return Err(ErrorWrapper::SizeTooLarge);
         }
         // Size is OK, now we must do a *second* request for the actual data.
-        return self.request_and_read_property(format_to_read, self.atoms.DATA, );
+        return self.request_and_read_property(format_to_read, self.atoms.DATA);
       }
     }
 
