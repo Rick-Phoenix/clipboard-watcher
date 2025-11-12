@@ -7,7 +7,7 @@ use std::{
 use futures::channel::mpsc::Sender;
 use log::{debug, error};
 
-use crate::{error::ClipboardResult, logging::bytes_to_mb, stream::StreamId};
+use crate::{error::ClipboardResult, logging::HumanBytes, stream::StreamId};
 
 /// The content extracted from the clipboard.
 ///
@@ -45,14 +45,14 @@ impl Body {
     if log::log_enabled!(log::Level::Debug) {
       if let Some(path) = &path {
         debug!(
-          "Found PNG image. Size: {:.2}MB, Path: {}",
-          bytes_to_mb(bytes.len()),
+          "Found PNG image. Size: {}, Path: {}",
+          HumanBytes(bytes.len()),
           path.display()
         );
       } else {
         debug!(
-          "Found PNG image. Size: {:.2}MB, Path: None",
-          bytes_to_mb(bytes.len())
+          "Found PNG image. Size: {}, Path: None",
+          HumanBytes(bytes.len())
         );
       };
     }
@@ -82,8 +82,8 @@ impl Body {
   pub(crate) fn new_custom(name: Arc<str>, data: Vec<u8>) -> Self {
     if log::log_enabled!(log::Level::Debug) {
       debug!(
-        "Found content with custom format `{name}`. Size: {:.2}MB",
-        bytes_to_mb(data.len())
+        "Found content with custom format `{name}`. Size: {}",
+        HumanBytes(data.len())
       );
     }
 
@@ -139,14 +139,14 @@ impl RawImage {
   pub(crate) fn log_info(&self) {
     if let Some(path) = &self.path {
       debug!(
-        "Found raw image. Size: {:.2}MB, Path: {}",
-        bytes_to_mb(self.bytes.len()),
+        "Found raw image. Size: {}, Path: {}",
+        HumanBytes(self.bytes.len()),
         path.display()
       );
     } else {
       debug!(
-        "Found raw image. Size: {:.2}MB, Path: None",
-        bytes_to_mb(self.bytes.len())
+        "Found raw image. Size: {}, Path: None",
+        HumanBytes(self.bytes.len())
       );
     }
   }

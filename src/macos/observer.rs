@@ -146,8 +146,8 @@ impl OSXObserver {
           if let Some(limit) = max_size {
             if size > limit as usize {
               debug!(
-                "Found content with {:.2}MB size, beyond maximum allowed size. Skipping it...",
-                bytes_to_mb(size)
+                "Found content with {} size, beyond maximum allowed size. Skipping it...",
+                HumanBytes(size)
               );
 
               return Err(ErrorWrapper::SizeTooLarge);

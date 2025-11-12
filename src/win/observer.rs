@@ -3,22 +3,22 @@ use std::{
   num::NonZeroU32,
   path::PathBuf,
   sync::{
-    Arc,
     atomic::{AtomicBool, Ordering},
+    Arc,
   },
   time::Duration,
 };
 
-use clipboard_win::{Clipboard, Getter, formats};
+use clipboard_win::{formats, Clipboard, Getter};
 use image::DynamicImage;
 use log::{debug, error, info, trace, warn};
 
 use crate::{
-  Body,
   body::BodySenders,
   error::{ClipboardError, ErrorWrapper},
-  logging::bytes_to_mb,
+  logging::HumanBytes,
   observer::Observer,
+  Body,
 };
 
 pub(crate) struct WinObserver {
@@ -277,8 +277,8 @@ fn can_access_format(
               Err(ErrorWrapper::EmptyContent)
             } else {
               debug!(
-                "Found content with {:.2}MB size, beyond maximum allowed size. Skipping it...",
-                bytes_to_mb(size.get())
+                "Found content with {} size, beyond maximum allowed size. Skipping it...",
+                HumanBytes(size.get())
               );
               // Invalid size, we use an error to exit early later on
               Err(ErrorWrapper::SizeTooLarge)
@@ -299,7 +299,7 @@ fn can_access_format(
 fn load_dib(bytes: &[u8]) -> Result<DynamicImage, ClipboardError> {
   use std::io::Cursor;
 
-  use image::{DynamicImage, codecs::bmp::BmpDecoder};
+  use image::{codecs::bmp::BmpDecoder, DynamicImage};
 
   let cursor = Cursor::new(bytes);
 

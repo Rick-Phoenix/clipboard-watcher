@@ -25,7 +25,7 @@ use x11rb::{
 use crate::{
   body::BodySenders,
   error::{ClipboardError, ErrorWrapper},
-  logging::bytes_to_mb,
+  logging::HumanBytes,
   observer::Observer,
   Body,
 };
@@ -495,8 +495,8 @@ impl XServerContext {
 
         if size as u32 > max_size {
           debug!(
-            "Found content with {:.2}MB size, beyond maximum allowed size. Skipping it...",
-            bytes_to_mb(size)
+            "Found content with {} size, beyond maximum allowed size. Skipping it...",
+            HumanBytes(size)
           );
 
           return Err(ErrorWrapper::SizeTooLarge);
@@ -521,8 +521,8 @@ impl XServerContext {
       // 4. Make a decision based on the size.
       if size > max_size {
         debug!(
-          "Found content with {:.2}MB size, beyond maximum allowed size. Skipping it...",
-          bytes_to_mb(size as usize)
+          "Found content with {} size, beyond maximum allowed size. Skipping it...",
+          HumanBytes(size as usize)
         );
 
         // Size is too large. We MUST clean up the property we created.
