@@ -1,6 +1,6 @@
 use std::{
   convert::Infallible,
-  sync::{Arc, atomic::AtomicBool},
+  sync::{atomic::AtomicBool, Arc},
   time::Duration,
 };
 

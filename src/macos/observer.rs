@@ -14,8 +14,9 @@ use objc2::{
   ClassType,
 };
 use objc2_app_kit::{
-  NSPasteboard, NSPasteboardType, NSPasteboardTypeHTML, NSPasteboardTypePNG,
-  NSPasteboardTypeString, NSPasteboardTypeTIFF, NSPasteboardURLReadingFileURLsOnlyKey,
+  NSPasteboard, NSPasteboardType, NSPasteboardTypeFileURL, NSPasteboardTypeHTML,
+  NSPasteboardTypePNG, NSPasteboardTypeString, NSPasteboardTypeTIFF,
+  NSPasteboardURLReadingFileURLsOnlyKey,
 };
 use objc2_foundation::{NSArray, NSData, NSDictionary, NSNumber, NSString, NSURL};
 
@@ -26,22 +27,54 @@ use crate::{
   observer::Observer,
 };
 
+struct AvailableTypes {
+  inner: Retained<NSArray<NSPasteboardType>>,
+}
+
+impl AvailableTypes {
+  pub fn new(inner: Retained<NSArray<NSPasteboardType>>) -> Self {
+    Self { inner }
+  }
+
+  pub fn contains(&self, format_type: &NSPasteboardType) -> bool {
+    unsafe { self.inner.containsObject(&format_type) }
+  }
+}
+
+pub(crate) struct CustomFormat {
+  pub(crate) ns_string: Retained<NSString>,
+  pub(crate) rust_string: Arc<str>,
+}
+
+impl CustomFormat {
+  pub(crate) fn new(str: Arc<str>) -> Self {
+    Self {
+      ns_string: NSString::from_str(str.as_ref()),
+      rust_string: str,
+    }
+  }
+}
+
 pub(crate) struct OSXObserver {
   stop: Arc<AtomicBool>,
   pasteboard: Retained<NSPasteboard>,
   interval: Duration,
-  custom_formats: Vec<Arc<str>>,
+  custom_formats: Vec<CustomFormat>,
   max_size: Option<u32>,
 }
 
 impl OSXObserver {
-  pub(super) fn new(
+  pub(crate) fn new(
     stop: Arc<AtomicBool>,
     interval: Option<Duration>,
     custom_formats: Vec<Arc<str>>,
     max_size: Option<u32>,
   ) -> Self {
     let pasteboard = unsafe { NSPasteboard::generalPasteboard() };
+    let custom_formats: Vec<CustomFormat> = custom_formats
+      .into_iter()
+      .map(|str| CustomFormat::new(str))
+      .collect();
 
     OSXObserver {
       stop,
@@ -84,15 +117,20 @@ impl Observer for OSXObserver {
 }
 
 impl OSXObserver {
-  pub(crate) fn get_change_count(&self) -> isize {
+  fn get_change_count(&self) -> isize {
     unsafe { self.pasteboard.changeCount() }
   }
 
   fn extract_clipboard_format(
     &self,
+    available_types: &AvailableTypes,
     format_type: &NSPasteboardType,
     max_size: Option<u32>,
   ) -> Result<Option<Vec<u8>>, ErrorWrapper> {
+    if !available_types.contains(format_type) {
+      return Ok(None);
+    }
+
     autoreleasepool(|_| {
       let data_obj: Option<Retained<NSData>> = unsafe { self.pasteboard.dataForType(format_type) };
 
@@ -119,12 +157,19 @@ impl OSXObserver {
           // Size is okay, copy the data to a Rust Vec.
           Ok(Some(data.to_vec()))
         }
-        None => Ok(None), // Format was not present.
+        None => Ok(None), // Format was not present (technically it should not happen)
       }
     })
   }
 
-  pub(crate) fn extract_files_list(&self) -> Result<Option<Vec<PathBuf>>, ErrorWrapper> {
+  fn extract_files_list(
+    &self,
+    available_types: &AvailableTypes,
+  ) -> Result<Option<Vec<PathBuf>>, ErrorWrapper> {
+    if unsafe { !available_types.contains(&NSPasteboardTypeFileURL) } {
+      return Ok(None);
+    }
+
     let files = autoreleasepool(|_| {
       let class_array = NSArray::from_slice(&[NSURL::class()]);
       let options = NSDictionary::from_slices(
@@ -163,16 +208,17 @@ impl OSXObserver {
     }
   }
 
-  fn extract_png(&self) -> Result<Option<Vec<u8>>, ErrorWrapper> {
-    unsafe { self.extract_clipboard_format(NSPasteboardTypePNG, self.max_size) }
+  fn extract_png(&self, available_types: &AvailableTypes) -> Result<Option<Vec<u8>>, ErrorWrapper> {
+    unsafe { self.extract_clipboard_format(available_types, NSPasteboardTypePNG, self.max_size) }
   }
 
-  pub(super) fn extract_raw_image(&self) -> Result<Option<image::DynamicImage>, ErrorWrapper> {
-    let max_size = self.max_size;
-
-    if let Some(tiff_bytes) =
-      unsafe { self.extract_clipboard_format(NSPasteboardTypeTIFF, max_size)? }
-    {
+  fn extract_raw_image(
+    &self,
+    available_types: &AvailableTypes,
+  ) -> Result<Option<image::DynamicImage>, ErrorWrapper> {
+    if let Some(tiff_bytes) = unsafe {
+      self.extract_clipboard_format(available_types, NSPasteboardTypeTIFF, self.max_size)?
+    } {
       trace!("Found image in TIFF format");
 
       let image = image::load_from_memory_with_format(&tiff_bytes, ImageFormat::Tiff)
@@ -184,7 +230,16 @@ impl OSXObserver {
     }
   }
 
-  fn string_from_type(&self, type_: &'static NSString) -> Result<Option<String>, ErrorWrapper> {
+  // From [arboard](https://github.com/1Password/arboard), modified
+  fn string_from_type(
+    &self,
+    available_types: &AvailableTypes,
+    type_: &'static NSString,
+  ) -> Result<Option<String>, ErrorWrapper> {
+    if !available_types.contains(type_) {
+      return Ok(None);
+    }
+
     // XXX: We explicitly use `pasteboardItems` and not `stringForType` since the latter will concat
     // multiple strings, if present, into one and return it instead of reading just the first which is `arboard`'s
     // historical behavior.
@@ -211,18 +266,25 @@ impl OSXObserver {
     autoreleasepool(|_| {
       let max_size = self.max_size;
 
-      for name in self.custom_formats.iter() {
-        let format_nsstring = NSString::from_str(name.as_ref());
+      let available_types = if let Some(types) = unsafe { self.pasteboard.types() } && !types.is_empty() {
+        AvailableTypes::new(types)
+      } else {
+        return Ok(None)
+      };
+
+      for format in self.custom_formats.iter() {
         // For custom formats, we check the size as well as the presence
-        if let Some(bytes) = self.extract_clipboard_format(&format_nsstring, max_size)? {
-          return Ok(Some(Body::new_custom(name.clone(), bytes)));
+        if let Some(bytes) =
+          self.extract_clipboard_format(&available_types, &format.ns_string, max_size)?
+        {
+          return Ok(Some(Body::new_custom(format.rust_string.clone(), bytes)));
         }
       }
 
-      if let Some(png_bytes) = self.extract_png()? {
+      if let Some(png_bytes) = self.extract_png(&available_types)? {
         // If there is only one path in the file list, which is sometimes emitted by the OS
         // when copying an image, we assign it to the image
-        let image_path = if let Some(mut files_list) = self.extract_files_list()? {
+        let image_path = if let Some(mut files_list) = self.extract_files_list(&available_types)? {
           if files_list.len() == 1 {
             Some(files_list.remove(0))
           } else {
@@ -233,10 +295,10 @@ impl OSXObserver {
         };
 
         Ok(Some(Body::new_png(png_bytes, image_path)))
-      } else if let Some(image) = self.extract_raw_image()? {
+      } else if let Some(image) = self.extract_raw_image(&available_types)? {
         // If there is only one path in the file list, which is sometimes emitted by the OS
         // when copying an image, we assign it to the image
-        let image_path = if let Some(mut files_list) = self.extract_files_list()? {
+        let image_path = if let Some(mut files_list) = self.extract_files_list(&available_types)? {
           if files_list.len() == 1 {
             Some(files_list.remove(0))
           } else {
@@ -247,13 +309,17 @@ impl OSXObserver {
         };
 
         Ok(Some(Body::new_image(image, image_path)))
-      } else if let Some(files_list) = self.extract_files_list()? {
+      } else if let Some(files_list) = self.extract_files_list(&available_types)? {
         Ok(Some(Body::new_file_list(files_list)))
       } else {
-        if let Some(html) = unsafe { self.string_from_type(NSPasteboardTypeHTML)? } {
+        if let Some(html) =
+          unsafe { self.string_from_type(&available_types, NSPasteboardTypeHTML)? }
+        {
           return Ok(Some(Body::new_html(html)));
         }
-        if let Some(plain_text) = unsafe { self.string_from_type(NSPasteboardTypeString)? } {
+        if let Some(plain_text) =
+          unsafe { self.string_from_type(&available_types, NSPasteboardTypeString)? }
+        {
           return Ok(Some(Body::new_text(plain_text)));
         }
 
