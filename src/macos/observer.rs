@@ -90,13 +90,9 @@ impl Observer for OSXObserver {
   fn observe(&mut self, body_senders: Arc<BodySenders>) {
     let mut last_count = self.get_change_count();
 
-    let interval = self.interval;
-
     info!("Started monitoring the clipboard");
 
     while !self.stop.load(Ordering::Relaxed) {
-      std::thread::sleep(interval);
-
       let change_count = self.get_change_count();
 
       if change_count != last_count {
@@ -112,6 +108,8 @@ impl Observer for OSXObserver {
           Ok(None) => {}
         }
       }
+
+      std::thread::sleep(self.interval);
     }
   }
 }

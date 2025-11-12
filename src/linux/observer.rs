@@ -100,8 +100,6 @@ impl Observer for LinuxObserver {
     info!("Started monitoring the clipboard");
 
     while !self.stop.load(Ordering::Relaxed) {
-      std::thread::sleep(interval);
-
       match self.server_context.conn.poll_for_event() {
         Ok(event) => {
           if let Some(Event::XfixesSelectionNotify(notify_event)) = event
@@ -131,6 +129,8 @@ impl Observer for LinuxObserver {
           break;
         }
       };
+
+      std::thread::sleep(interval);
     }
   }
 }
