@@ -282,31 +282,19 @@ impl OSXObserver {
       }
 
       if let Some(png_bytes) = self.extract_png(&available_types)? {
-        // If there is only one path in the file list, which is sometimes emitted by the OS
-        // when copying an image, we assign it to the image
-        let image_path = if let Some(mut files_list) = self.extract_files_list(&available_types)? {
-          if files_list.len() == 1 {
-            Some(files_list.remove(0))
-          } else {
-            None
-          }
-        } else {
-          None
-        };
+        // Extract the image path if we have a list of files with a single item
+        let image_path = self
+          .extract_files_list(&available_types)?
+          .filter(|list| list.len() == 1)
+          .map(|mut files| files.remove(0));
 
         Ok(Some(Body::new_png(png_bytes, image_path)))
       } else if let Some(image) = self.extract_raw_image(&available_types)? {
-        // If there is only one path in the file list, which is sometimes emitted by the OS
-        // when copying an image, we assign it to the image
-        let image_path = if let Some(mut files_list) = self.extract_files_list(&available_types)? {
-          if files_list.len() == 1 {
-            Some(files_list.remove(0))
-          } else {
-            None
-          }
-        } else {
-          None
-        };
+        // Extract the image path if we have a list of files with a single item
+        let image_path = self
+          .extract_files_list(&available_types)?
+          .filter(|list| list.len() == 1)
+          .map(|mut files| files.remove(0));
 
         Ok(Some(Body::new_image(image, image_path)))
       } else if let Some(files_list) = self.extract_files_list(&available_types)? {

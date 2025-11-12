@@ -153,27 +153,19 @@ impl WinObserver {
     }
 
     if let Some(png_bytes) = self.extract_png(&available_formats)? {
-      let image_path = if let Some(mut files_list) = self.extract_files_list(&available_formats)?
-        && files_list.len() == 1
-      {
-        let img_path = files_list.remove(0);
-
-        Some(img_path)
-      } else {
-        None
-      };
+      // Extract the image path if we have a list of files with a single item
+      let image_path = self
+        .extract_files_list(&available_formats)?
+        .filter(|list| list.len() == 1)
+        .map(|mut files| files.remove(0));
 
       Ok(Some(Body::new_png(png_bytes, image_path)))
     } else if let Some(image) = self.extract_raw_image(&available_formats)? {
-      let image_path = if let Some(mut files_list) = self.extract_files_list(&available_formats)?
-        && files_list.len() == 1
-      {
-        let img_path = files_list.remove(0);
-
-        Some(img_path)
-      } else {
-        None
-      };
+      // Extract the image path if we have a list of files with a single item
+      let image_path = self
+        .extract_files_list(&available_formats)?
+        .filter(|list| list.len() == 1)
+        .map(|mut files| files.remove(0));
 
       Ok(Some(Body::new_image(image, image_path)))
     } else if let Some(files_list) = self.extract_files_list(&available_formats)? {
@@ -261,6 +253,7 @@ impl Observer for WinObserver {
   }
 }
 
+// We use a result rather than a simple boolean to trigger early exits and reduce verbosity
 fn content_is_not_empty(content: &str) -> Result<bool, ErrorWrapper> {
   if content.is_empty() {
     Err(ErrorWrapper::EmptyContent)

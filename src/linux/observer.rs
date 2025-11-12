@@ -482,7 +482,7 @@ impl XServerContext {
     // 1. Try the cheap size verification first
     if let Some(max_size) = max_size && available_formats.contains(&self.atoms.LENGTH) {
       let size_bytes =
-        self.request_and_read_property(self.atoms.LENGTH, self.atoms.METADATA, )?;
+        self.request_and_read_property(self.atoms.LENGTH, self.atoms.METADATA)?;
 
       if size_bytes.len() >= 4 {
         let size = usize::from_ne_bytes(size_bytes[0..4].try_into().unwrap());
