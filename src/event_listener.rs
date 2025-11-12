@@ -75,6 +75,7 @@ impl ClipboardEventListenerBuilder {
       self.custom_formats,
       self.max_bytes,
     )?;
+
     Ok(ClipboardEventListener {
       driver: Some(driver),
       body_senders,

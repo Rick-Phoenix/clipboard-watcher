@@ -14,7 +14,8 @@ use crate::{error::ClipboardResult, logging::HumanBytes, stream::StreamId};
 /// To avoid extracting all types of content each time, only one of them is chosen, in the following order of priority:
 ///
 /// - Custom formats (in the order they are given, if present)
-/// - Image (see [`ClipboardImage`] for more info)
+/// - Png Image
+/// - Raw Image (normalized to rgb8)
 /// - File list
 /// - HTML
 /// - Plain text
