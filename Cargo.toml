@@ -21,7 +21,6 @@ keywords = [
 futures = "0.3"
 thiserror = "2"
 serde = { version = "1", optional = true, features = ["derive", "rc"] }
-image = { version = "0.25", features = ["serde"] }
 log = "0.4"
 
 [dev-dependencies]
@@ -31,15 +30,37 @@ futures = { version = "0.3", features = ["executor"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
-objc2-foundation = "0.3"
-objc2-app-kit = "0.3"
+objc2-foundation = { version = "0.3", default-features = false, features = [
+  "NSArray",
+  "NSData",
+  "NSDictionary",
+  "NSValue",
+  "NSString",
+  "NSURL",
+  # For trait method
+  "NSObject",
+  "NSEnumerator",
+] }
+objc2-app-kit = { version = "0.3", default-features = false, features = [
+  "NSPasteboard",
+  "NSPasteboardItem",
+] }
+image = { version = "0.25", default-features = false, features = [
+  "png",
+  "tiff",
+] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 clipboard-win = { version = "5.4", features = ["monitor", "std"] }
+image = { version = "0.25", default-features = false, features = [
+  "png",
+  "bmp",
+] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 x11rb = { version = "0.13", features = ["xfixes"] }
 percent-encoding = "2.3"
+image = { version = "0.25", default-features = false, features = ["png"] }
 
 [[example]]
 name = "stream"

@@ -5,7 +5,6 @@ use std::{
 };
 
 use futures::channel::mpsc::Sender;
-use image::DynamicImage;
 use log::{debug, error};
 
 use crate::{error::ClipboardResult, logging::bytes_to_mb, stream::StreamId};
@@ -61,7 +60,8 @@ impl Body {
     Self::PngImage { bytes, path }
   }
 
-  pub(crate) fn new_image(image: DynamicImage, path: Option<PathBuf>) -> Self {
+  #[cfg(not(target_os = "linux"))]
+  pub(crate) fn new_image(image: image::DynamicImage, path: Option<PathBuf>) -> Self {
     let rgb = image.into_rgb8();
 
     let (width, height) = rgb.dimensions();
@@ -135,6 +135,7 @@ impl RawImage {
     self.path.is_some()
   }
 
+  #[cfg(not(target_os = "linux"))]
   pub(crate) fn log_info(&self) {
     if let Some(path) = &self.path {
       debug!(
