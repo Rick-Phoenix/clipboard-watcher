@@ -25,8 +25,22 @@ log = "0.4"
 
 [dev-dependencies]
 env_logger = "0.11"
-tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros"] }
+tokio = { version = "1", features = [
+  "rt",
+  "rt-multi-thread",
+  "macros",
+  "sync",
+  "time",
+] }
 futures = { version = "0.3", features = ["executor"] }
+arboard = "3.6"
+tempfile = "3.23"
+
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+hex = "0.4"
+
+[target.'cfg(target_os = "windows")'.dev-dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Graphics_Gdi"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
