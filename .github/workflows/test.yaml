@@ -36,14 +36,15 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y xvfb xclip
 
-      - name: Run tests
-        run: |
-          # On Linux, we need to wrap the test command in xvfb-run.
-          # On Windows and macOS, we can run it directly.
-          # The `--test-threads=1` flag is crucial for all platforms to prevent
-          # tests from interfering with each other's clipboard actions.
-          if [[ "${{ runner.os }}" == "Linux" ]]; then
-            xvfb-run cargo test -- --test-threads=1
-          else
-            cargo test -- --test-threads=1
-          fi
+      # On Linux, we need to wrap the test command in xvfb-run.
+      # On Windows and macOS, we can run it directly.
+      # The `--test-threads=1` flag is crucial for all platforms to prevent
+      # tests from interfering with each other's clipboard actions.
+
+      - name: Run tests (Linux)
+        if: runner.os == 'Linux'
+        run: xvfb-run cargo test -- --test-threads=1
+
+      - name: Run tests (Windows & macOS)
+        if: runner.os != 'Linux'
+        run: cargo test -- --test-threads=1
