@@ -1,5 +1,5 @@
 use std::{
-  sync::{atomic::AtomicBool, Arc},
+  sync::{atomic::AtomicBool, mpsc, Arc},
   time::Duration,
 };
 
@@ -16,8 +16,6 @@ impl Driver {
     custom_formats: Vec<impl AsRef<str>>,
     max_bytes: Option<u32>,
   ) -> Result<Self, InitializationError> {
-    use std::sync::mpsc;
-
     let stop = Arc::new(AtomicBool::new(false));
 
     let stop_cl = stop.clone();

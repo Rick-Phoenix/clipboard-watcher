@@ -107,19 +107,6 @@ impl ClipboardEventListener {
   /// This method takes a buffer size. Items are buffered when not received immediately.
   /// The actual buffer capacity is `buf_size + 2`, where the extra `2` accounts for the
   /// number of internal senders used by the library.
-  ///
-  /// # Example
-  /// ```
-  /// # use clipboard_stream::{Body, ClipboardEventListener, ClipboardStream};
-  /// # #[tokio::main]
-  /// # async fn main() {
-  ///     let mut event_listener = ClipboardEventListener::spawn();
-  ///
-  ///     let buf_size = 32;
-  ///     let stream = event_listener.new_stream(buf_size);
-  /// # }
-  /// ```
-  /// [`Body`]: crate::Body
   pub fn new_stream(&mut self, buffer: usize) -> ClipboardStream {
     let (tx, rx) = mpsc::channel(buffer);
     let id = StreamId(self.id.fetch_add(1, Ordering::Relaxed));

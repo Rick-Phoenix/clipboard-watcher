@@ -10,20 +10,6 @@ use crate::{body::BodySendersDropHandle, error::ClipboardResult};
 /// Asynchronous stream for fetching clipboard item.
 ///
 /// When the clipboard is updated, the [`ClipboardStream`] polls for the yields the new data.
-///
-/// # Example
-/// ```
-/// # use clipboard_stream::{Body, ClipboardStream};
-/// # use futures::stream::StreamExt;
-/// # async fn stream(mut stream: ClipboardStream) {
-/// // stream: ClipboardStream
-/// while let Some(body) = stream.next().await {
-///     if let Body::Utf8String(text) = body {
-///         println!("{}", text);
-///     }
-/// }
-/// # }
-/// ```
 #[derive(Debug)]
 pub struct ClipboardStream {
   pub(crate) id: StreamId,
