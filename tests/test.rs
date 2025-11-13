@@ -9,8 +9,17 @@ use futures::StreamExt;
 use image::{ImageFormat, RgbImage};
 use tokio::sync::mpsc;
 
+fn init_logging() {
+  let _ = env_logger::builder()
+    .is_test(true)
+    .filter_level(log::LevelFilter::Trace)
+    .try_init();
+}
+
 #[tokio::test]
 async fn plain_text() {
+  init_logging();
+
   let (signal_tx, mut signal_rx) = mpsc::channel(1);
 
   let mut event_listener = ClipboardEventListener::builder().spawn().unwrap();
@@ -91,9 +100,13 @@ async fn plain_text() {
 
 #[tokio::test]
 async fn file_list() {
+  init_logging();
+
   let temp_file = tempfile::NamedTempFile::new().unwrap();
   let file_path = temp_file.path().to_path_buf();
   let file_uri = format!("file://{}", file_path.display());
+
+  log::debug!("Created temporary file `{}`", file_path.display());
 
   let (signal_tx, mut signal_rx) = mpsc::channel(1);
 
@@ -115,7 +128,8 @@ async fn file_list() {
     }
   });
 
-  tokio::time::sleep(Duration::from_millis(100)).await;
+  // Give ample time for the file to be created
+  tokio::time::sleep(Duration::from_millis(300)).await;
 
   if cfg!(windows) {
     Command::new("powershell")
@@ -170,6 +184,8 @@ async fn file_list() {
 
 #[tokio::test]
 async fn html() {
+  init_logging();
+
   let (signal_tx, mut signal_rx) = mpsc::channel(1);
 
   let mut event_listener = ClipboardEventListener::builder().spawn().unwrap();
@@ -261,6 +277,8 @@ async fn html() {
 
 #[tokio::test]
 async fn png() {
+  init_logging();
+
   let img = RgbImage::new(1, 1);
   let mut png_bytes = Vec::new();
   img
@@ -359,14 +377,12 @@ async fn png() {
 #[cfg(windows)]
 #[tokio::test]
 async fn dib() {
-  env_logger::builder()
-    .filter_level(log::LevelFilter::Trace)
-    .init();
-
   use clipboard_win::options::DoClear;
   use std::mem::size_of;
   use std::slice;
   use windows_sys::Win32::Graphics::Gdi::{BI_RGB, BITMAPFILEHEADER, BITMAPINFOHEADER};
+
+  init_logging();
 
   let width: u32 = 2;
   let height: u32 = 2;
@@ -490,6 +506,8 @@ async fn dib() {
 #[cfg(target_os = "macos")]
 #[tokio::test]
 async fn tiff() {
+  init_logging();
+
   let width = 1;
   let height = 1;
 
