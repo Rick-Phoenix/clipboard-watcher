@@ -44,6 +44,11 @@ pub enum Body {
 }
 
 impl Body {
+  /// Checks whether this instance contains an image.
+  pub fn is_image(&self) -> bool {
+    matches!(self, Self::RawImage(_) | Self::PngImage { .. })
+  }
+
   pub(crate) fn new_png(bytes: Vec<u8>, path: Option<PathBuf>) -> Self {
     if log::log_enabled!(log::Level::Debug) {
       if let Some(path) = &path {
