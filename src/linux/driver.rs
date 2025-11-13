@@ -13,7 +13,7 @@ impl Driver {
   pub(crate) fn new(
     body_senders: Arc<BodySenders>,
     interval: Option<Duration>,
-    custom_formats: Vec<impl AsRef<str>>,
+    custom_formats: Vec<Arc<str>>,
     max_bytes: Option<u32>,
   ) -> Result<Self, InitializationError> {
     let stop = Arc::new(AtomicBool::new(false));
@@ -22,13 +22,8 @@ impl Driver {
 
     let (init_tx, init_rx) = mpsc::sync_channel(0);
 
-    let thread_safe_formats_list: Vec<Arc<str>> = custom_formats
-      .into_iter()
-      .map(|f| f.as_ref().into())
-      .collect();
-
     let handle = std::thread::spawn(move || {
-      match LinuxObserver::new(stop_cl, interval, max_bytes, thread_safe_formats_list) {
+      match LinuxObserver::new(stop_cl, interval, max_bytes, custom_formats) {
         Ok(mut observer) => {
           init_tx.send(Ok(())).unwrap();
 

@@ -11,17 +11,12 @@ impl Driver {
   pub(crate) fn new(
     body_senders: Arc<BodySenders>,
     interval: Option<Duration>,
-    custom_formats: Vec<impl AsRef<str>>,
+    custom_formats: Vec<Arc<str>>,
     max_bytes: Option<u32>,
   ) -> Result<Self, Infallible> {
     let stop = Arc::new(AtomicBool::new(false));
 
     let stop_cl = stop.clone();
-
-    let custom_formats: Vec<Arc<str>> = custom_formats
-      .into_iter()
-      .map(|fmt| fmt.as_ref().into())
-      .collect();
 
     // spawn OS thread
     // observe clipboard change event and send item
