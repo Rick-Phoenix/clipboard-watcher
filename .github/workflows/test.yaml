@@ -47,8 +47,8 @@ jobs:
 
       - name: Run tests (Linux)
         if: runner.os == 'Linux'
-        run: xvfb-run cargo test -- --test-threads=1
+        run: xvfb-run cargo test -- --nocapture --test-threads=1
 
       - name: Run tests (Windows & macOS)
         if: runner.os != 'Linux'
-        run: cargo test -- --test-threads=1
+        run: cargo test -- --nocapture --test-threads=1
