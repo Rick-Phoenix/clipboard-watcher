@@ -31,7 +31,7 @@ This crate can be used to subscribe to the system clipboard and read its content
 
 You can run this example with cargo: `cargo run --example stream`
 
-```rust
+```rust,ignore
 use clipboard_watcher::{Body, ClipboardEventListener};
 use futures::StreamExt;
 use log::Level;
