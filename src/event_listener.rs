@@ -57,9 +57,7 @@ impl ClipboardEventListenerBuilder {
 
   /// Sets a maximum allowed size limit. It only applies to custom formats or to images, but not to text-based formats like html or plain text.
   ///
-  /// The various platform-specific implementations will use a performant method to check the size of the clipboard items without loading their content into a buffer, so this can be useful to avoid processing large files.
-  ///
-  /// The linux implementation has a fallible mechanism for getting the size of the clipboard item in a performant way, using a less performant method as a fallback.
+  /// The various platform-specific implementations will attempt to use a performant method to check the size of the clipboard items without loading their content into a buffer, so this can be useful to avoid processing large files such as high-definition images.
   pub fn max_size(mut self, max_bytes: u32) -> Self {
     self.max_bytes = Some(max_bytes);
     self
@@ -101,7 +99,7 @@ impl ClipboardEventListener {
     Self::builder().spawn()
   }
 
-  /// Creates a [`ClipboardStream`] for receiving clipboard change items as [`Body`].
+  /// Creates a [`ClipboardStream`] for receiving clipboard change items as [`Body`](crate::body::Body).
   ///
   /// # Buffer size
   /// This method takes a buffer size. Items are buffered when not received immediately.
@@ -123,6 +121,7 @@ impl ClipboardEventListener {
 
 impl Drop for ClipboardEventListener {
   fn drop(&mut self) {
+    // Manually dropping the driver before anything else
     drop(self.driver.take())
   }
 }

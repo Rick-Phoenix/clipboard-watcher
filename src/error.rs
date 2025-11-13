@@ -4,6 +4,7 @@ use thiserror::Error;
 
 use crate::Body;
 
+/// An error encountered while initializing the clipboard watcher
 #[derive(Clone, Debug, Error)]
 #[error("Failed to start clipboard monitor: {0}")]
 pub struct InitializationError(pub String);

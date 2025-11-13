@@ -41,6 +41,7 @@ impl AvailableTypes {
   }
 }
 
+// Caches the custom format in both formats used for retrieval/storage
 pub(crate) struct CustomFormat {
   pub(crate) ns_string: Retained<NSString>,
   pub(crate) rust_string: Arc<str>,
@@ -119,6 +120,7 @@ impl OSXObserver {
     unsafe { self.pasteboard.changeCount() }
   }
 
+  // Attempts to extract a specific format from the clipboard
   fn extract_clipboard_format(
     &self,
     available_types: &AvailableTypes,
@@ -155,7 +157,9 @@ impl OSXObserver {
           // Size is okay, copy the data to a Rust Vec.
           Ok(Some(data.to_vec()))
         }
-        None => Ok(None), // Format was not present (technically it should not happen)
+        // Format was not present (technically it should not happen
+        // since the format was in the list already)
+        None => Ok(None),
       }
     })
   }
@@ -169,7 +173,12 @@ impl OSXObserver {
     }
 
     let files = autoreleasepool(|_| {
+      // The readObjects(classes, options) receives two arguments:
+      //
+      // 1. The list of classes to read (in this case, just NSURL)
       let class_array = NSArray::from_slice(&[NSURL::class()]);
+
+      // 2. The options for the query (in our case, only read the URLs that are FileURLs)
       let options = NSDictionary::from_slices(
         &[unsafe { NSPasteboardURLReadingFileURLsOnlyKey }],
         &[NSNumber::new_bool(true).as_ref()],
@@ -200,8 +209,7 @@ impl OSXObserver {
     match files {
       Some(files) if !files.is_empty() => Ok(Some(files)),
       // Macos api returns an empty list if no matching objects
-      // were found, but it doesn't mean the format was matched
-      // so we must not trigger an early exit
+      // were found. Theoretically impossible since the format is already in the list.
       _ => Ok(None),
     }
   }
@@ -228,7 +236,7 @@ impl OSXObserver {
     }
   }
 
-  // From [arboard](https://github.com/1Password/arboard), modified
+  // From [arboard](https://github.com/1Password/arboard), with modifications
   fn string_from_type(
     &self,
     available_types: &AvailableTypes,
@@ -260,6 +268,7 @@ impl OSXObserver {
     })
   }
 
+  // Reads the clipboard and extract the first kind of format available, following the priority list
   fn extract_content(&self) -> Result<Option<Body>, ErrorWrapper> {
     autoreleasepool(|_| {
       let max_size = self.max_size;
@@ -314,6 +323,7 @@ impl OSXObserver {
     })
   }
 
+  // Tries to read the clipboard and unwraps the error, if one was encountered
   fn get_clipboard_content(&self) -> Result<Option<Body>, ClipboardError> {
     match self.extract_content() {
       // Found content

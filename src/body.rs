@@ -21,24 +21,26 @@ use crate::{error::ClipboardResult, logging::HumanBytes, stream::StreamId};
 /// - Plain text
 ///
 /// When a clipboard item can fit more than one of these formats, only the one with the highest priority will be chosen.
-///
-/// When selecting a single image as a file, the item will be processed as an Image (with a defined file path), falling back to a single-item file list in case the processing of the image goes wrong.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(untagged))]
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Body {
+  /// HTML content.
   Html(String),
+  /// Plaintext content.
   PlainText(String),
+  /// An raw image taken from the clipboard (in bmp or tiff format)
+  /// and converted to raw rgb8 bytes.
   RawImage(RawImage),
+  /// An image in png format.
   PngImage {
     bytes: Vec<u8>,
     path: Option<PathBuf>,
   },
+  /// A list of files.
   FileList(Vec<PathBuf>),
-  Custom {
-    name: Arc<str>,
-    data: Vec<u8>,
-  },
+  /// A custom format.
+  Custom { name: Arc<str>, data: Vec<u8> },
 }
 
 impl Body {
@@ -153,6 +155,8 @@ impl RawImage {
   }
 }
 
+// A wrapper for a mutex of HashMap that contains all of the registered receivers
+// for a given listener.
 #[derive(Debug)]
 pub(crate) struct BodySenders {
   senders: Mutex<HashMap<StreamId, Sender<ClipboardResult>>>,

@@ -56,7 +56,7 @@ impl LinuxObserver {
   ) -> Result<Self, String> {
     let server_context = XServerContext::new()?;
 
-    let custom_formats = server_context.intern_custom_formats(custom_formats)?;
+    let custom_formats = server_context.register_custom_formats(custom_formats)?;
 
     let screen = server_context
       .conn
@@ -136,6 +136,7 @@ impl Observer for LinuxObserver {
 }
 
 impl LinuxObserver {
+  // Calls the extractor and unwraps the error
   fn poll_clipboard(&self) -> Result<Option<Body>, ClipboardError> {
     match self.get_clipboard_content() {
       Ok(Some(content)) => Ok(Some(content)),
@@ -152,6 +153,8 @@ impl LinuxObserver {
     }
   }
 
+  // Tries to extract the contents of the clipboard, and returns an error
+  // wrapper that can indicate a normal early exit or an actual error
   fn get_clipboard_content(&self) -> Result<Option<Body>, ErrorWrapper> {
     let available_formats = self.server_context.get_available_formats()?;
 
@@ -338,6 +341,8 @@ impl XServerContext {
     })
   }
 
+  // Requests the property without reading it (useful for checking the size
+  // in case the LENGTH atom is not supported by the clipboard owner)
   fn request_property(
     &self,
     format_to_request: Atom,
@@ -390,6 +395,8 @@ impl XServerContext {
     }
   }
 
+  // Fallback method to check for the size of an item when the LENGTH
+  // request was unsuccessful
   fn get_property_size(&self, property_atom: Atom) -> Result<u32, ErrorWrapper> {
     let prop_reply = self
       .conn
@@ -476,6 +483,7 @@ impl XServerContext {
     Ok(paths_from_uri_list(raw_data))
   }
 
+  // Attempts to extract a specific format from the clipboard
   fn extract_clipboard_content(
     &self,
     format_to_read: Atom,
@@ -541,7 +549,7 @@ impl XServerContext {
     self.read_property_data(data_prop)
   }
 
-  fn intern_custom_formats(
+  fn register_custom_formats(
     &self,
     format_names: Vec<Arc<str>>,
   ) -> Result<HashMap<Arc<str>, Atom>, String> {
@@ -565,6 +573,7 @@ impl XServerContext {
     Ok(atoms_map)
   }
 
+  // Gets the first available plain text format
   fn available_text_format(&self, available_formats: &[Atom]) -> Option<Atom> {
     [
       self.atoms.UTF8_MIME_0,

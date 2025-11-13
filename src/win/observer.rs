@@ -3,22 +3,22 @@ use std::{
   num::NonZeroU32,
   path::PathBuf,
   sync::{
-    Arc,
     atomic::{AtomicBool, Ordering},
+    Arc,
   },
   time::Duration,
 };
 
-use clipboard_win::{Clipboard, Getter, formats};
+use clipboard_win::{formats, Clipboard, Getter};
 use image::DynamicImage;
 use log::{debug, error, info, trace, warn};
 
 use crate::{
-  Body,
   body::BodySenders,
   error::{ClipboardError, ErrorWrapper},
   logging::HumanBytes,
   observer::Observer,
+  Body,
 };
 
 pub(crate) struct WinObserver {
@@ -66,6 +66,7 @@ impl WinObserver {
     })
   }
 
+  // Attempts to extract a specific format
   fn extract_clipboard_format(
     available_formats: &[u32],
     format_id: u32,
@@ -131,7 +132,7 @@ impl WinObserver {
             Ok(Some(files_list))
           }
         } else {
-          // Technically impossible
+          // Technically impossible since it's already in the list
           Ok(None)
         }
       }
@@ -139,6 +140,7 @@ impl WinObserver {
     }
   }
 
+  // Reads the clipboard and extracts the first matching format, following the priority list
   fn extract_clipboard_content(&self) -> Result<Option<Body>, ErrorWrapper> {
     let available_formats: Vec<u32> = clipboard_win::EnumFormats::new().collect();
 
@@ -183,6 +185,7 @@ impl WinObserver {
     }
   }
 
+  // Calls the extractor and unwraps the error, if one was encountered
   fn get_clipboard_content(&self) -> Result<Option<Body>, ClipboardError> {
     let _clipboard =
       Clipboard::new_attempts(10).map_err(|e| ClipboardError::ReadError(e.to_string()))?;
@@ -258,7 +261,7 @@ fn content_is_not_empty(content: &str) -> Result<bool, ErrorWrapper> {
   }
 }
 
-// We use the error wrapper to trigger early exit in case a format is present but not valid, to avoid checking other formats
+// We use the error wrapper to trigger early exit in case a format is present but not valid, to avoid checking other formats needlessly
 fn can_access_format(
   available_formats: &[u32],
   format_id: u32,
@@ -300,7 +303,7 @@ fn can_access_format(
 fn load_dib(bytes: &[u8]) -> Result<DynamicImage, ClipboardError> {
   use std::io::Cursor;
 
-  use image::{DynamicImage, codecs::bmp::BmpDecoder};
+  use image::{codecs::bmp::BmpDecoder, DynamicImage};
 
   let cursor = Cursor::new(bytes);
 
