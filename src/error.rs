@@ -6,6 +6,8 @@ use crate::Body;
 
 /// An error encountered while initializing the clipboard watcher
 #[derive(Clone, Debug, Error)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(transparent))]
 #[error("Failed to start clipboard monitor: {0}")]
 pub struct InitializationError(pub String);
 
@@ -16,6 +18,7 @@ impl From<Infallible> for InitializationError {
 }
 
 /// Various kinds of errors that can occur while monitoring or reading the clipboard.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, Error)]
 #[non_exhaustive]
 pub enum ClipboardError {
