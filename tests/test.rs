@@ -4,9 +4,11 @@ use std::{
   time::Duration,
 };
 
+use arboard::Clipboard;
 use clipboard_watcher::{Body, ClipboardEventListener, RawImage};
 use futures::StreamExt;
 use image::{ImageFormat, RgbImage};
+use log::debug;
 use tokio::sync::mpsc;
 
 fn init_logging() {
@@ -103,7 +105,11 @@ async fn file_list() {
   init_logging();
 
   let temp_file = tempfile::NamedTempFile::new().unwrap();
-  let file_path = temp_file.path().to_path_buf();
+  let file_path = temp_file
+    .path()
+    .to_path_buf()
+    .canonicalize()
+    .expect("Failed to canonicalize path");
   let file_uri = format!("file://{}", file_path.display());
 
   log::debug!("Created temporary file `{}`", file_path.display());
@@ -138,18 +144,12 @@ async fn file_list() {
       .status()
       .expect("Failed to execute PowerShell command.");
   } else if cfg!(target_os = "macos") {
-    let script = format!(
-      "set the clipboard to (the POSIX file \"{}\")",
-      file_path.display()
-    );
+    let mut clipboard = Clipboard::new().expect("Failed to access the clipboard");
 
-    let status = Command::new("osascript")
-      .arg("-e") // Execute the following script string
-      .arg(&script)
-      .status()
-      .expect("Failed to execute osascript command.");
-
-    assert!(status.success(), "osascript for file list failed.");
+    clipboard
+      .set()
+      .file_list(&[file_path])
+      .expect("Failed to set file list");
   } else if cfg!(target_os = "linux") {
     let mut child = Command::new("xclip")
       .arg("-selection")
