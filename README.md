@@ -2,16 +2,22 @@
 
 This crate can be used to subscribe to the system clipboard and read its contents whenever a new item is added to it. 
 
-It leverages the `Stream` async primitive, which unlocks common useful implementations for streams such as debouncing.
+## Features
 
-It allows for customization of the listener's parameters, such as:
+- **Leverages the Stream async primitive**
+    The listener implements `Stream`, which unlocks access to all implementations that have been built around this trait, such as throttling, debouncing and so on.
 
-- Custom formats
-- Polling interval
-- Maximum size
-    - The crate will first try to use a cheap method to get the size of the clipboard item, and if the size is beyond the limit, the item will not be processed at all, providing better performance.
-        - For linux/x11, the cheap method may or may not work depending on how the clipboard owner behaves (there isn't a centralized clipboard handler like in windows or macos). If this method is not available, then a less efficient method will be used, where the data is loaded and then its size gets checked.
-        - For macos, there is not a cheap method to check for an item's size (as far as I know), so the best that can be done is to load the item and just discard it if the size is not within the allowed range.
+- **Max size filter**
+    The user can define a maximum allowed size for a clipboard item. This can be useful to avoid processing very large images or custom formats.
+    The logic for checking an item's size vary from platform to platform.
+    On windows, the size can always be checked without processing the data immediately. On linux, this is also possible in the majority of cases (as long as the clipboard owner supports requests for the `LENGTH` property).
+    On macos, there isn't a way of doing this in a cheap way (as far as I know), so the data will be loaded first and then its size will be inspected.
+
+- **Custom formats**
+    The listener supports any arbitrary custom format.
+
+- **Customizable polling interval**
+
 # Supported Formats
 
 - HTML
@@ -23,6 +29,8 @@ It allows for customization of the listener's parameters, such as:
 
 # Example
 
+You can run this example with cargo: `cargo run --example stream`
+
 ```rust
 use clipboard_watcher::{Body, ClipboardEventListener};
 use futures::StreamExt;
@@ -32,12 +40,14 @@ use log::Level;
 async fn main() {
   let mut event_listener = ClipboardEventListener::builder().spawn().unwrap();
 
+  // Specifies the buffer size
   let mut stream = event_listener.new_stream(32);
 
   env_logger::init();
 
   while let Some(result) = stream.next().await {
-    // Can enable logging with RUST_LOG
+    // You can enable logging with RUST_LOG for more detailed inspection.
+    // Otherwise, the activity will be logged as follows
     if !log::log_enabled!(Level::Debug) {
       match result {
         Ok(content) => {
