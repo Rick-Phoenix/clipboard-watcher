@@ -585,6 +585,8 @@ async fn tiff() {
 
 #[tokio::test]
 async fn size_limits() {
+  init_logging();
+
   const MAX_SIZE_BYTES: u32 = 1_000_000;
 
   // A 1024x1024 RGBA image has 4MB of raw data, which will result in
@@ -608,7 +610,6 @@ async fn size_limits() {
       image::ImageFormat::Png,
     )
     .expect("Failed to encode large PNG");
-  init_logging();
 
   let (signal_tx, mut signal_rx) = mpsc::channel(1);
 
@@ -649,20 +650,29 @@ async fn size_limits() {
   {
     let hex_encoded_png = hex::encode(&png_bytes);
 
-    // Construct the AppleScript command. This creates a record containing
-    // raw data of type 'PNGf'.
     let script = format!(
       "set the clipboard to {{«class PNGf»:«data PNGf{}»}}",
       hex_encoded_png
     );
 
-    let status = Command::new("osascript")
-      .arg("-e")
-      .arg(&script)
-      .status()
-      .expect("Failed to execute osascript for PNG data.");
+    // Spawn osascript and get a handle to its stdin.
+    let mut child = Command::new("osascript")
+      .stdin(Stdio::piped())
+      .spawn()
+      .expect("Failed to spawn osascript");
 
-    assert!(status.success(), "osascript for PNG data failed.");
+    let mut stdin = child.stdin.take().expect("Failed to open osascript stdin");
+
+    // Write the script to stdin.
+    // It's a large write, so a separate thread is a good safety measure.
+    std::thread::spawn(move || {
+      stdin
+        .write_all(script.as_bytes())
+        .expect("Failed to write script to osascript stdin");
+    });
+
+    let status = child.wait().expect("osascript command failed to run");
+    assert!(status.success(), "osascript command for large image failed");
   }
 
   #[cfg(target_os = "linux")]
@@ -695,6 +705,114 @@ async fn size_limits() {
       panic!("Channel was closed prematurely");
     }
     Err(_) => {}
+  };
+
+  // Clean up the spawned task.
+  listener_task.abort();
+}
+
+#[tokio::test]
+async fn custom_formats() {
+  init_logging();
+
+  const CUSTOM_FORMAT: &str = "application/tom-bombadil";
+  let test_data = "bright blue his jacket is, and his boots are yellow!".as_bytes();
+
+  let (signal_tx, mut signal_rx) = mpsc::channel(1);
+
+  let mut event_listener = ClipboardEventListener::builder()
+    .with_custom_formats([CUSTOM_FORMAT])
+    .spawn()
+    .unwrap();
+
+  let mut stream = event_listener.new_stream(1);
+
+  let listener_task = tokio::spawn(async move {
+    while let Some(result) = stream.next().await {
+      if let Ok(content) = result
+        && let Body::Custom { name, data } = content.as_ref()
+      {
+        assert_eq!(name.as_ref(), CUSTOM_FORMAT);
+        assert_eq!(data, &test_data);
+
+        signal_tx.send(()).await.unwrap();
+      }
+    }
+  });
+
+  tokio::time::sleep(Duration::from_millis(100)).await;
+
+  #[cfg(windows)]
+  {
+    let _clipboard =
+      clipboard_win::Clipboard::new_attempts(10).expect("Failed to access clipboard");
+
+    let custom_format_id =
+      clipboard_win::register_format(CUSTOM_FORMAT).expect("Failed to register custom format");
+
+    clipboard_win::set(
+      clipboard_win::formats::RawData(custom_format_id.get()),
+      test_data,
+    )
+    .expect("Failed to write custom format to the clipboard");
+
+    drop(_clipboard);
+  }
+
+  #[cfg(target_os = "macos")]
+  {
+    use objc2::rc::autoreleasepool;
+    use objc2_app_kit::{NSPasteboard, NSPasteboardType};
+    use objc2_foundation::NSData;
+
+    let success = unsafe {
+      autoreleasepool(|_| {
+        let pasteboard = NSPasteboard::generalPasteboard();
+
+        pasteboard.clearContents();
+
+        let data_object = NSData::with_bytes(test_data);
+
+        let format_type = NSPasteboardType::from_str(CUSTOM_FORMAT);
+
+        pasteboard.setData_forType(Some(&data_object), &format_type)
+      })
+    };
+
+    if !success {
+      panic!("Native macOS API call (via objc2) to set clipboard data failed.");
+    }
+  }
+
+  #[cfg(target_os = "linux")]
+  {
+    let mut child = Command::new("xclip")
+      .arg("-selection")
+      .arg("clipboard")
+      .arg("-target")
+      .arg(CUSTOM_FORMAT)
+      .stdin(Stdio::piped())
+      .spawn()
+      .expect("Failed to spawn xclip. Is it installed?");
+
+    let mut stdin = child.stdin.take().expect("Failed to open xclip stdin");
+    stdin
+      .write_all(test_data)
+      .expect("Failed to write to xclip stdin");
+    drop(stdin);
+
+    let status = child.wait().expect("xclip command failed to run");
+    assert!(status.success(), "xclip command exited with an error");
+  }
+
+  match tokio::time::timeout(Duration::from_secs(3), signal_rx.recv()).await {
+    Ok(Some(_)) => {}
+    Ok(None) => {
+      panic!("Listening task finished without receiving the correct clipboard content.");
+    }
+    Err(_) => {
+      panic!("Test timed out: Did not receive clipboard update in time.");
+    }
   };
 
   // Clean up the spawned task.
