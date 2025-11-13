@@ -4,11 +4,9 @@ use std::{
   time::Duration,
 };
 
-use arboard::Clipboard;
-use clipboard_watcher::{Body, ClipboardEventListener, RawImage};
+use clipboard_watcher::{Body, ClipboardEventListener};
 use futures::StreamExt;
 use image::{ImageFormat, RgbImage};
-use log::debug;
 use tokio::sync::mpsc;
 
 fn init_logging() {
@@ -110,7 +108,6 @@ async fn file_list() {
     .to_path_buf()
     .canonicalize()
     .expect("Failed to canonicalize path");
-  let file_uri = format!("file://{}", file_path.display());
 
   log::debug!("Created temporary file `{}`", file_path.display());
 
@@ -134,23 +131,29 @@ async fn file_list() {
     }
   });
 
-  // Give ample time for the file to be created
-  tokio::time::sleep(Duration::from_secs(1)).await;
+  tokio::time::sleep(Duration::from_millis(100)).await;
 
-  if cfg!(windows) {
+  #[cfg(windows)]
+  {
     Command::new("powershell")
       .arg("-Command")
       .arg(format!("Set-Clipboard -Path '{}'", file_path.display()))
       .status()
       .expect("Failed to execute PowerShell command.");
-  } else if cfg!(target_os = "macos") {
-    let mut clipboard = Clipboard::new().expect("Failed to access the clipboard");
+  }
+
+  #[cfg(target_os = "macos")]
+  {
+    let mut clipboard = arboard::Clipboard::new().expect("Failed to access the clipboard");
 
     clipboard
       .set()
       .file_list(&[file_path])
       .expect("Failed to set file list");
-  } else if cfg!(target_os = "linux") {
+  }
+
+  #[cfg(target_os = "linux")]
+  {
     let mut child = Command::new("xclip")
       .arg("-selection")
       .arg("clipboard")
@@ -159,6 +162,8 @@ async fn file_list() {
       .stdin(Stdio::piped())
       .spawn()
       .expect("Failed to spawn xclip. Is it installed?");
+
+    let file_uri = format!("file://{}", file_path.display());
 
     let mut stdin = child.stdin.take().unwrap();
     stdin.write_all(file_uri.as_bytes()).unwrap();
@@ -377,10 +382,11 @@ async fn png() {
 #[cfg(windows)]
 #[tokio::test]
 async fn dib() {
+  use std::{mem::size_of, slice};
+
+  use clipboard_watcher::RawImage;
   use clipboard_win::options::DoClear;
-  use std::mem::size_of;
-  use std::slice;
-  use windows_sys::Win32::Graphics::Gdi::{BI_RGB, BITMAPFILEHEADER, BITMAPINFOHEADER};
+  use windows_sys::Win32::Graphics::Gdi::{BITMAPFILEHEADER, BITMAPINFOHEADER, BI_RGB};
 
   init_logging();
 
@@ -506,6 +512,8 @@ async fn dib() {
 #[cfg(target_os = "macos")]
 #[tokio::test]
 async fn tiff() {
+  use clipboard_watcher::RawImage;
+
   init_logging();
 
   let width = 1;

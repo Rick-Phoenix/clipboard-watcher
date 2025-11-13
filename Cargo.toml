@@ -33,7 +33,6 @@ tokio = { version = "1", features = [
   "time",
 ] }
 futures = { version = "0.3", features = ["executor"] }
-arboard = "3.6"
 tempfile = "3.23"
 
 [target.'cfg(target_os = "macos")'.dependencies]
@@ -60,6 +59,7 @@ image = { version = "0.25", default-features = false, features = [
 
 [target.'cfg(target_os = "macos")'.dev-dependencies]
 hex = "0.4"
+arboard = "3.6"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 clipboard-win = { version = "5.4", features = ["monitor", "std"] }
