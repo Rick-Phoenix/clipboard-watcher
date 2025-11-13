@@ -8,6 +8,9 @@ license = "Apache-2.0"
 description = "Customizable listener for the system clipboard that leverages the Stream trait"
 keywords = ["clipboard", "async", "stream", "macos", "windows", "linux"]
 
+[package.metadata.release]
+allow-branch = ["main"]
+
 [dependencies]
 futures = "0.3"
 thiserror = "2"

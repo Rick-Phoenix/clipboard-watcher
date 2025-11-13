@@ -1,2 +1,17 @@
 test:
     cargo test -- --nocapture --test-threads=1
+
+update-changelog version:
+    echo "Generating changelog..."
+    git cliff --tag {{ version }} -o "CHANGELOG.md" -- 2697dee6dd799191426ccf58f18e87451333580d..HEAD
+
+    git add "CHANGELOG.md"
+
+    echo "Committing the new changelog"
+    git commit -m "updated changelog"
+
+release-test version="patch":
+    cargo release {{ version }}
+
+release-exec version: (update-changelog version)
+    cargo release {{ version }} --execute
