@@ -4,7 +4,7 @@ This crate can be used to subscribe to the system clipboard and read its content
 
 ## Features
 
-- **Leverages the Stream async primitive**
+- **Leverages the Stream trait**
     The listener implements `Stream`, which unlocks access to all implementations that have been built around this trait, such as throttling, debouncing and so on.
 
 - **Max size filter**
