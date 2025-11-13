@@ -24,6 +24,7 @@ serde = { version = "1", optional = true, features = ["derive", "rc"] }
 log = "0.4"
 
 [dev-dependencies]
+rand = "0.9"
 env_logger = "0.11"
 tokio = { version = "1", features = [
   "rt",

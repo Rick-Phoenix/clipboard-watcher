@@ -582,3 +582,121 @@ async fn tiff() {
   // Clean up the spawned task.
   listener_task.abort();
 }
+
+#[tokio::test]
+async fn size_limits() {
+  const MAX_SIZE_BYTES: u32 = 1_000_000;
+
+  // A 1024x1024 RGBA image has 4MB of raw data, which will result in
+  // a PNG file that is also several MB.
+  let width = 1024;
+  let height = 1024;
+
+  use rand::RngCore;
+
+  // Generate random pixel data.
+  let mut pixel_data = vec![0u8; width as usize * height as usize * 4]; // 4 bytes for RGBA
+  rand::rng().fill_bytes(&mut pixel_data);
+
+  let img = image::RgbImage::from_raw(width, height, pixel_data)
+    .expect("Failed to create large image buffer");
+
+  let mut png_bytes = Vec::new();
+  img
+    .write_to(
+      &mut std::io::Cursor::new(&mut png_bytes),
+      image::ImageFormat::Png,
+    )
+    .expect("Failed to encode large PNG");
+  init_logging();
+
+  let (signal_tx, mut signal_rx) = mpsc::channel(1);
+
+  let mut event_listener = ClipboardEventListener::builder()
+    .max_size(MAX_SIZE_BYTES)
+    .spawn()
+    .unwrap();
+
+  let mut stream = event_listener.new_stream(1);
+
+  let listener_task = tokio::spawn(async move {
+    while let Some(result) = stream.next().await {
+      if let Ok(content) = result
+        && let Body::PngImage {  .. } = content.as_ref()
+      {
+        // In this case, it's a failure signal
+        signal_tx.send(()).await.unwrap();
+      }
+    }
+  });
+
+  tokio::time::sleep(Duration::from_millis(100)).await;
+
+  #[cfg(windows)]
+  {
+    let _clipboard =
+      clipboard_win::Clipboard::new_attempts(10).expect("Failed to access clipboard");
+
+    let png_format = clipboard_win::register_format("PNG").expect("Failed to register PNG format");
+
+    clipboard_win::set(clipboard_win::formats::RawData(png_format.get()), png_bytes)
+      .expect("Failed to write PNG to the clipboard");
+
+    drop(_clipboard);
+  }
+
+  #[cfg(target_os = "macos")]
+  {
+    let hex_encoded_png = hex::encode(&png_bytes);
+
+    // Construct the AppleScript command. This creates a record containing
+    // raw data of type 'PNGf'.
+    let script = format!(
+      "set the clipboard to {{«class PNGf»:«data PNGf{}»}}",
+      hex_encoded_png
+    );
+
+    let status = Command::new("osascript")
+      .arg("-e")
+      .arg(&script)
+      .status()
+      .expect("Failed to execute osascript for PNG data.");
+
+    assert!(status.success(), "osascript for PNG data failed.");
+  }
+
+  #[cfg(target_os = "linux")]
+  {
+    let mut child = Command::new("xclip")
+      .arg("-selection")
+      .arg("clipboard")
+      .arg("-target")
+      .arg("image/png")
+      .stdin(Stdio::piped())
+      .spawn()
+      .expect("Failed to spawn xclip. Is it installed?");
+
+    let mut stdin = child.stdin.take().expect("Failed to open xclip stdin");
+    stdin
+      .write_all(&png_bytes)
+      .expect("Failed to write to xclip stdin");
+    drop(stdin);
+
+    let status = child.wait().expect("xclip command failed to run");
+    assert!(status.success(), "xclip command exited with an error");
+  }
+
+  match tokio::time::timeout(Duration::from_secs(3), signal_rx.recv()).await {
+    Ok(Some(_)) => {
+      // In this case, it's a failure
+      panic!("Image exceeding maximum size was not ignored");
+    }
+    Ok(None) => {
+      panic!("Channel was closed prematurely");
+    }
+    Err(_) => {}
+  };
+
+  // Clean up the spawned task.
+  listener_task.abort();
+}
