@@ -141,7 +141,7 @@ impl LinuxObserver {
       Ok(Some(content)) => Ok(Some(content)),
 
       // No content or non-fatal errors
-      Ok(None) | Err(ErrorWrapper::SizeTooLarge) | Err(ErrorWrapper::FormatUnavailable) => Ok(None),
+      Ok(None) | Err(ErrorWrapper::SizeTooLarge) => Ok(None),
       Err(ErrorWrapper::EmptyContent) => {
         trace!("Found empty content. Skipping it...");
         Ok(None)

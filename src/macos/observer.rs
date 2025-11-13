@@ -327,8 +327,6 @@ impl OSXObserver {
 
       Err(ErrorWrapper::SizeTooLarge) => Ok(None),
 
-      Err(ErrorWrapper::FormatUnavailable) => Ok(None),
-
       // Actual error
       Err(ErrorWrapper::ReadError(e)) => Err(e),
 

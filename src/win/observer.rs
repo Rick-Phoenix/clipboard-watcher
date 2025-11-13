@@ -199,8 +199,6 @@ impl WinObserver {
 
       Err(ErrorWrapper::SizeTooLarge) => Ok(None),
 
-      Err(ErrorWrapper::FormatUnavailable) => Ok(None),
-
       // Actual error
       Err(ErrorWrapper::ReadError(e)) => Err(e),
 
@@ -284,14 +282,17 @@ fn can_access_format(
               Err(ErrorWrapper::SizeTooLarge)
             }
           }
+
           // Should be impossible given that the format
           // is already in the list, but we should trigger
           // an early exit regardless, as something went wrong
-          None => Err(ErrorWrapper::FormatUnavailable),
+          None => Err(ErrorWrapper::EmptyContent),
         },
         None => Ok(true),
       }
     }
+
+    // Format was not available at all
     false => Ok(false),
   }
 }

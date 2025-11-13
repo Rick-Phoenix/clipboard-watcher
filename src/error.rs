@@ -37,7 +37,6 @@ impl From<Infallible> for ClipboardError {
 pub(crate) enum ErrorWrapper {
   EmptyContent,
   SizeTooLarge,
-  FormatUnavailable,
   ReadError(ClipboardError),
 }
 
