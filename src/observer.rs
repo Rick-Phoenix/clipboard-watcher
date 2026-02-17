@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::body::BodySenders;
+use crate::BodySenders;
 
 /// A trait for observing clipboard changes and report any new events to a list of subscribers.
 pub(super) trait Observer {

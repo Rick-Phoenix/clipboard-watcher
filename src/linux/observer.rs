@@ -3,8 +3,8 @@ use std::{
   fmt::Display,
   path::PathBuf,
   sync::{
-    atomic::{AtomicBool, Ordering},
     Arc,
+    atomic::{AtomicBool, Ordering},
   },
   time::{Duration, Instant},
 };
@@ -12,22 +12,20 @@ use std::{
 use log::{debug, error, info, trace, warn};
 use percent_encoding::percent_decode;
 use x11rb::{
+  CURRENT_TIME,
   connection::Connection,
   protocol::{
-    xfixes,
+    Event, xfixes,
     xproto::{Atom, ConnectionExt, CreateWindowAux, EventMask, Property, WindowClass},
-    Event,
   },
   rust_connection::RustConnection,
-  CURRENT_TIME,
 };
 
 use crate::{
-  body::BodySenders,
+  Body, BodySenders,
   error::{ClipboardError, ErrorWrapper},
   logging::HumanBytes,
   observer::Observer,
-  Body,
 };
 
 pub(crate) struct LinuxObserver {
@@ -109,7 +107,7 @@ impl Observer for LinuxObserver {
               Ok(Some(content)) => body_senders.send_all(Ok(Arc::new(content))),
 
               // Skipped content (size too large, empty, etc)
-              Ok(None)  => {}
+              Ok(None) => {}
 
               // Read error
               Err(e) => {
@@ -177,9 +175,11 @@ impl LinuxObserver {
         self.max_size,
       )?;
 
-      let path = if let Ok(mut files) = self.server_context.extract_file_list(&available_formats) && files.len() == 1 {
+      let path = if let Ok(mut files) = self.server_context.extract_file_list(&available_formats)
+        && files.len() == 1
+      {
         Some(files.remove(0))
-      } else{
+      } else {
         None
       };
 
@@ -381,14 +381,16 @@ impl XServerContext {
         }
 
         if let Event::SelectionNotify(ev) = event
-          && ev.requestor == self.win_id && ev.selection == self.atoms.CLIPBOARD {
-            if ev.property == x11rb::NONE {
-              return Err(to_read_error("Clipboard owner failed to convert selection"));
-            }
-            // Success! The data is on the server. Return the property's name,
-            // which can later be used to inspect or get the data
-            return Ok(ev.property);
+          && ev.requestor == self.win_id
+          && ev.selection == self.atoms.CLIPBOARD
+        {
+          if ev.property == x11rb::NONE {
+            return Err(to_read_error("Clipboard owner failed to convert selection"));
           }
+          // Success! The data is on the server. Return the property's name,
+          // which can later be used to inspect or get the data
+          return Ok(ev.property);
+        }
       } else {
         std::thread::sleep(Duration::from_millis(20));
       }
@@ -491,9 +493,10 @@ impl XServerContext {
     max_size: Option<u32>,
   ) -> Result<Vec<u8>, ErrorWrapper> {
     // 1. Try the cheap size verification first
-    if let Some(max_size) = max_size && available_formats.contains(&self.atoms.LENGTH) {
-      let size_bytes =
-        self.request_and_read_property(self.atoms.LENGTH, self.atoms.METADATA)?;
+    if let Some(max_size) = max_size
+      && available_formats.contains(&self.atoms.LENGTH)
+    {
+      let size_bytes = self.request_and_read_property(self.atoms.LENGTH, self.atoms.METADATA)?;
 
       if size_bytes.len() >= 4 {
         let size = usize::from_ne_bytes(size_bytes[0..4].try_into().unwrap());

@@ -3,22 +3,21 @@ use std::{
   num::NonZeroU32,
   path::PathBuf,
   sync::{
-    atomic::{AtomicBool, Ordering},
     Arc,
+    atomic::{AtomicBool, Ordering},
   },
   time::Duration,
 };
 
-use clipboard_win::{formats, Clipboard, Getter};
+use clipboard_win::{Clipboard, Getter, formats};
 use image::DynamicImage;
 use log::{debug, error, info, trace, warn};
 
 use crate::{
-  body::BodySenders,
+  Body, BodySenders,
   error::{ClipboardError, ErrorWrapper},
   logging::HumanBytes,
   observer::Observer,
-  Body,
 };
 
 pub(crate) struct WinObserver {
@@ -303,7 +302,7 @@ fn can_access_format(
 fn load_dib(bytes: &[u8]) -> Result<DynamicImage, ClipboardError> {
   use std::io::Cursor;
 
-  use image::{codecs::bmp::BmpDecoder, DynamicImage};
+  use image::{DynamicImage, codecs::bmp::BmpDecoder};
 
   let cursor = Cursor::new(bytes);
 

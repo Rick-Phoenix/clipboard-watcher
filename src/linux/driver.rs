@@ -1,10 +1,10 @@
 use std::{
-  sync::{atomic::AtomicBool, mpsc, Arc},
+  sync::{Arc, atomic::AtomicBool, mpsc},
   time::Duration,
 };
 
 use crate::{
-  body::BodySenders, driver::Driver, error::InitializationError, linux::observer::LinuxObserver,
+  BodySenders, driver::Driver, error::InitializationError, linux::observer::LinuxObserver,
   observer::Observer,
 };
 

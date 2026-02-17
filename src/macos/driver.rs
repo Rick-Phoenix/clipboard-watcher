@@ -1,10 +1,10 @@
 use std::{
   convert::Infallible,
-  sync::{atomic::AtomicBool, Arc},
+  sync::{Arc, atomic::AtomicBool},
   time::Duration,
 };
 
-use crate::{body::BodySenders, driver::Driver, macos::observer::OSXObserver, observer::Observer};
+use crate::{BodySenders, driver::Driver, macos::observer::OSXObserver, observer::Observer};
 
 impl Driver {
   /// Construct [`Driver`] and spawn a thread for monitoring clipboard events

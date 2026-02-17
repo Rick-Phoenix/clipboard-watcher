@@ -1,8 +1,8 @@
 use std::{
   path::PathBuf,
   sync::{
-    atomic::{AtomicBool, Ordering},
     Arc,
+    atomic::{AtomicBool, Ordering},
   },
   time::Duration,
 };
@@ -10,8 +10,8 @@ use std::{
 use image::ImageFormat;
 use log::{debug, info, trace, warn};
 use objc2::{
-  rc::{autoreleasepool, Retained},
   ClassType,
+  rc::{Retained, autoreleasepool},
 };
 use objc2_app_kit::{
   NSPasteboard, NSPasteboardType, NSPasteboardTypeFileURL, NSPasteboardTypeHTML,
@@ -20,12 +20,7 @@ use objc2_app_kit::{
 };
 use objc2_foundation::{NSArray, NSData, NSDictionary, NSNumber, NSString, NSURL};
 
-use crate::{
-  body::*,
-  error::{ClipboardError, ErrorWrapper},
-  logging::*,
-  observer::Observer,
-};
+use crate::{logging::*, *};
 
 struct AvailableTypes {
   inner: Retained<NSArray<NSPasteboardType>>,
@@ -273,10 +268,12 @@ impl OSXObserver {
     autoreleasepool(|_| {
       let max_size = self.max_size;
 
-      let available_types = if let Some(types) = unsafe { self.pasteboard.types() } && !types.is_empty() {
+      let available_types = if let Some(types) = unsafe { self.pasteboard.types() }
+        && !types.is_empty()
+      {
         AvailableTypes::new(types)
       } else {
-        return Ok(None)
+        return Ok(None);
       };
 
       for format in self.custom_formats.iter() {

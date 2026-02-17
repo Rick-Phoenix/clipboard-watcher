@@ -4,6 +4,7 @@ use futures::{
   Stream,
   channel::mpsc::{self, Receiver, Sender},
 };
+use log::{debug, error};
 use std::sync::{
   Arc, Mutex,
   atomic::{AtomicBool, AtomicUsize, Ordering},
@@ -18,26 +19,26 @@ use std::{
 };
 
 mod body;
-use body::*;
+pub use body::*;
+mod body_senders;
+use body_senders::*;
 mod driver;
 use driver::Driver;
-pub mod error;
-use error::*;
+mod error;
+pub use error::*;
 
 mod event_listener;
-#[cfg(target_os = "linux")]
-mod linux;
+pub use event_listener::*;
+
 pub(crate) mod logging;
-#[cfg(target_os = "macos")]
-mod macos;
+
 mod observer;
 mod stream;
+pub use stream::*;
+
+#[cfg(target_os = "linux")]
+mod linux;
+#[cfg(target_os = "macos")]
+mod macos;
 #[cfg(windows)]
 mod win;
-
-pub use stream::{ClipboardStream, StreamId};
-
-pub use crate::{
-  body::{Body, RawImage},
-  event_listener::ClipboardEventListener,
-};
