@@ -4,7 +4,35 @@ use log::Level;
 
 #[tokio::main]
 async fn main() {
-	let mut event_listener = ClipboardEventListener::builder().spawn().unwrap();
+	let mut event_listener = ClipboardEventListener::builder()
+		.with_gatekeeper(|ctx| {
+			if let Some(can_include_flag) = ctx
+				.formats
+				.iter()
+				.find(|f| f.name.as_ref() == "CanIncludeInClipboardHistory")
+				&& let Some(data) = ctx.get_data(can_include_flag)
+				&& data.iter().all(|b| *b == 0)
+			{
+				eprintln!(
+					"Detected `CanIncludeInClipboardHistory` being set to 0. Skipped processing"
+				);
+				return false;
+			}
+
+			if ctx
+				.formats
+				.contains_name("ExcludeClipboardContentFromMonitorProcessing")
+			{
+				eprintln!(
+					"Detected `ExcludeClipboardContentFromMonitorProcessing`. Skipped processing"
+				);
+				return false;
+			}
+
+			true
+		})
+		.spawn()
+		.unwrap();
 
 	let mut stream = event_listener.new_stream(5);
 

@@ -1,3 +1,6 @@
+check-apple:
+    cargo check --tests --target x86_64-apple-darwin
+
 test:
     cargo test -- --nocapture --test-threads=1
 

@@ -1,2 +1,2 @@
-mod driver;
-mod observer;
+pub(crate) mod driver;
+pub(crate) mod observer;
