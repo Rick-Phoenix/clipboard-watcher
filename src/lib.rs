@@ -13,6 +13,7 @@ use std::{
   path::PathBuf,
   pin::Pin,
   task::{Context, Poll},
+  thread::JoinHandle,
   time::Duration,
 };
 

@@ -1,8 +1,5 @@
 use std::{
-  sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc,
-  },
+  sync::{Arc, atomic::AtomicBool},
   thread::JoinHandle,
 };
 
@@ -14,17 +11,4 @@ pub(crate) struct Driver {
 
   /// This is the handle of the spawned Observer thread.
   pub(crate) handle: Option<JoinHandle<()>>,
-}
-
-impl Drop for Driver {
-  fn drop(&mut self) {
-    // Change the AtomicBool, stop the observers
-    self.stop.store(true, Ordering::Relaxed);
-
-    // Wait for the thread to finish
-    // We use option + take here because join consumes the value
-    if let Some(handle) = self.handle.take() {
-      handle.join().unwrap();
-    }
-  }
 }

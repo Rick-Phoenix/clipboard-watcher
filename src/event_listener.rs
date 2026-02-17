@@ -6,7 +6,8 @@ use crate::*;
 ///
 /// Use the [`builder`](ClipboardEventListener::builder) method to customize the options for the listener.
 pub struct ClipboardEventListener {
-  driver: Option<Driver>,
+  pub(crate) stop_signal: Arc<AtomicBool>,
+  pub(crate) thread_handle: Option<JoinHandle<()>>,
   body_senders: Arc<BodySenders>,
   next_id: AtomicUsize,
 }
@@ -59,7 +60,8 @@ impl ClipboardEventListenerBuilder {
     )?;
 
     Ok(ClipboardEventListener {
-      driver: Some(driver),
+      stop_signal: driver.stop,
+      thread_handle: driver.handle,
       body_senders,
       next_id: AtomicUsize::new(0),
     })
@@ -104,7 +106,13 @@ impl ClipboardEventListener {
 
 impl Drop for ClipboardEventListener {
   fn drop(&mut self) {
-    // Manually dropping the driver before anything else
-    drop(self.driver.take())
+    // Change the AtomicBool, stop the observers
+    self.stop_signal.store(true, Ordering::Relaxed);
+
+    // Wait for the thread to finish
+    // We use option + take here because join consumes the value
+    if let Some(handle) = self.thread_handle.take() {
+      handle.join().unwrap();
+    }
   }
 }
