@@ -1,11 +1,4 @@
-use std::{
-  pin::Pin,
-  task::{Context, Poll},
-};
-
-use futures::{channel::mpsc::Receiver, Stream};
-
-use crate::{body::BodySendersDropHandle, error::ClipboardResult};
+use crate::*;
 
 /// Asynchronous stream for fetching clipboard item.
 ///
@@ -14,7 +7,7 @@ use crate::{body::BodySendersDropHandle, error::ClipboardResult};
 pub struct ClipboardStream {
   pub(crate) id: StreamId,
   pub(crate) body_rx: Pin<Box<Receiver<ClipboardResult>>>,
-  pub(crate) drop_handle: BodySendersDropHandle,
+  pub(crate) body_senders: Arc<BodySenders>,
 }
 
 impl ClipboardStream {
@@ -33,18 +26,7 @@ impl Stream for ClipboardStream {
 
 impl Drop for ClipboardStream {
   fn drop(&mut self) {
-    self.body_rx.close();
-    // drain messages inner channel
-    loop {
-      match self.body_rx.try_next() {
-        Ok(Some(_)) => {}
-        Ok(None) => break,
-        Err(_) => continue,
-      }
-    }
-
-    // remove Sender from HashMap
-    self.drop_handle.drop(&self.id);
+    self.body_senders.unregister(&self.id);
   }
 }
 

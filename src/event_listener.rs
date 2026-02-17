@@ -1,20 +1,4 @@
-use std::{
-  sync::{
-    atomic::{AtomicUsize, Ordering},
-    Arc,
-  },
-  time::Duration,
-};
-
-use futures::channel::mpsc;
-
-use crate::{
-  body::{BodySenders, BodySendersDropHandle},
-  driver::Driver,
-  error::InitializationError,
-  stream::StreamId,
-  ClipboardStream,
-};
+use crate::*;
 
 /// Clipboard event change listener.
 ///
@@ -24,7 +8,7 @@ use crate::{
 pub struct ClipboardEventListener {
   driver: Option<Driver>,
   body_senders: Arc<BodySenders>,
-  id: AtomicUsize,
+  next_id: AtomicUsize,
 }
 
 /// The builder for the [`ClipboardEventListener`]. It can be used to specify more customized options such as the polling interval, or a list of custom clipboard formats.
@@ -77,7 +61,7 @@ impl ClipboardEventListenerBuilder {
     Ok(ClipboardEventListener {
       driver: Some(driver),
       body_senders,
-      id: AtomicUsize::new(0),
+      next_id: AtomicUsize::new(0),
     })
   }
 }
@@ -107,14 +91,13 @@ impl ClipboardEventListener {
   /// number of internal senders used by the library.
   pub fn new_stream(&mut self, buffer: usize) -> ClipboardStream {
     let (tx, rx) = mpsc::channel(buffer);
-    let id = StreamId(self.id.fetch_add(1, Ordering::Relaxed));
+    let id = StreamId(self.next_id.fetch_add(1, Ordering::Relaxed));
     self.body_senders.register(id.clone(), tx);
-    let drop_handle = BodySendersDropHandle::new(self.body_senders.clone());
 
     ClipboardStream {
       id,
       body_rx: Box::pin(rx),
-      drop_handle,
+      body_senders: self.body_senders.clone(),
     }
   }
 }

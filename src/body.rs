@@ -1,13 +1,7 @@
-use std::{
-  collections::HashMap,
-  path::PathBuf,
-  sync::{Arc, Mutex},
-};
-
-use futures::channel::mpsc::Sender;
+use crate::*;
 use log::{debug, error};
 
-use crate::{error::ClipboardResult, logging::HumanBytes, stream::StreamId};
+use crate::logging::HumanBytes;
 
 /// The content extracted from the clipboard.
 ///
@@ -181,7 +175,7 @@ impl BodySenders {
   }
 
   /// Close channel and unregister sender that was specified [`StreamId`]
-  fn unregister(&self, id: &StreamId) {
+  pub(crate) fn unregister(&self, id: &StreamId) {
     let mut guard = self.senders.lock().unwrap();
     guard.remove(id);
   }
@@ -195,21 +189,5 @@ impl BodySenders {
         Err(e) => error!("Failed to send the clipboard data: {e}"),
       };
     }
-  }
-}
-
-/// Handler for Cleaning up buffer(channel).
-///
-/// Close channel and unregister a specified [`StreamId`] of sender.
-#[derive(Debug)]
-pub(crate) struct BodySendersDropHandle(Arc<BodySenders>);
-
-impl BodySendersDropHandle {
-  pub(crate) fn new(senders: Arc<BodySenders>) -> Self {
-    BodySendersDropHandle(senders)
-  }
-
-  pub(crate) fn drop(&self, id: &StreamId) {
-    self.0.unregister(id);
   }
 }
