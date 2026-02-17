@@ -10,13 +10,6 @@ pub struct ClipboardStream {
   pub(crate) body_senders: Arc<BodySenders>,
 }
 
-impl ClipboardStream {
-  #[must_use]
-  pub const fn id(&self) -> &StreamId {
-    &self.id
-  }
-}
-
 impl Stream for ClipboardStream {
   type Item = ClipboardResult;
 
