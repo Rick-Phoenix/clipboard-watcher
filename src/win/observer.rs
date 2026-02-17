@@ -1,339 +1,336 @@
 use clipboard_win::{
-	Clipboard, EnumFormats, Getter, Monitor,
-	formats::{self, Html},
-	raw::format_name_big,
+  Clipboard, EnumFormats, Getter, Monitor,
+  formats::{self, Html},
+  raw::format_name_big,
 };
 use image::DynamicImage;
 
 use crate::*;
 
 pub(crate) struct WinObserver {
-	stop: Arc<AtomicBool>,
-	monitor: Monitor,
-	html_format: Html,
-	png_format: u32,
-	custom_formats: Formats,
-	formats_cache: HashMap<u32, Arc<str>>,
-	interval: Duration,
-	max_size: Option<u32>,
-	gatekeeper: Option<Gatekeeper>,
+  stop: Arc<AtomicBool>,
+  monitor: Monitor,
+  html_format: Html,
+  png_format: u32,
+  custom_formats: Formats,
+  formats_cache: HashMap<u32, Arc<str>>,
+  interval: Duration,
+  max_size: Option<u32>,
+  gatekeeper: Option<Gatekeeper>,
 }
 
 impl ClipboardContext<'_> {
-	#[cfg(windows)]
-	#[must_use]
-	pub fn get_data(&self, format: &Format) -> Option<Vec<u8>> {
-		clipboard_win::get(clipboard_win::formats::RawData(format.id)).ok()
-	}
+  #[cfg(windows)]
+  #[must_use]
+  #[inline]
+  pub fn get_data(&self, format: &Format) -> Option<Vec<u8>> {
+    clipboard_win::get(clipboard_win::formats::RawData(format.id)).ok()
+  }
 }
 
 impl Formats {
-	fn can_access_format(
-		&self,
-		format_id: u32,
-		max_bytes: Option<u32>,
-	) -> Result<bool, ErrorWrapper> {
-		match self.contains_id(format_id) {
-			true => {
-				match max_bytes {
-					Some(max) => match clipboard_win::size(format_id) {
-						Some(size) => {
-							if max as usize >= size.get() {
-								Ok(true)
-							} else if size.get() == 0 {
-								Err(ErrorWrapper::EmptyContent)
-							} else {
-								debug!(
-									"Found content with {} size, beyond maximum allowed size. Skipping it...",
-									HumanBytes(size.get())
-								);
-								// Invalid size, we use an error to exit early later on
-								Err(ErrorWrapper::SizeTooLarge)
-							}
-						}
+  fn can_access_format(
+    &self,
+    format_id: u32,
+    max_bytes: Option<u32>,
+  ) -> Result<bool, ErrorWrapper> {
+    match self.contains_id(format_id) {
+      true => {
+        match max_bytes {
+          Some(max) => match clipboard_win::size(format_id) {
+            Some(size) => {
+              if max as usize >= size.get() {
+                Ok(true)
+              } else if size.get() == 0 {
+                Err(ErrorWrapper::EmptyContent)
+              } else {
+                debug!(
+                  "Found content with {} size, beyond maximum allowed size. Skipping it...",
+                  HumanBytes(size.get())
+                );
+                // Invalid size, we use an error to exit early later on
+                Err(ErrorWrapper::SizeTooLarge)
+              }
+            }
 
-						// Should be impossible given that the format
-						// is already in the list, but we should trigger
-						// an early exit regardless, as something went wrong
-						None => Err(ErrorWrapper::EmptyContent),
-					},
-					None => Ok(true),
-				}
-			}
+            // Should be impossible given that the format
+            // is already in the list, but we should trigger
+            // an early exit regardless, as something went wrong
+            None => Err(ErrorWrapper::EmptyContent),
+          },
+          None => Ok(true),
+        }
+      }
 
-			// Format was not available at all
-			false => Ok(false),
-		}
-	}
+      // Format was not available at all
+      false => Ok(false),
+    }
+  }
 
-	// Attempts to extract a specific format
-	fn extract_clipboard_format(
-		&self,
-		format_id: u32,
-		max_bytes: Option<u32>,
-	) -> Result<Option<Vec<u8>>, ErrorWrapper> {
-		match self.can_access_format(format_id, max_bytes)? {
-			true => {
-				let data = clipboard_win::get(formats::RawData(format_id))
-					.map_err(|e| ClipboardError::ReadError(e.to_string()))?;
+  // Attempts to extract a specific format
+  fn extract_clipboard_format(
+    &self,
+    format_id: u32,
+    max_bytes: Option<u32>,
+  ) -> Result<Option<Vec<u8>>, ErrorWrapper> {
+    match self.can_access_format(format_id, max_bytes)? {
+      true => {
+        let data = clipboard_win::get(formats::RawData(format_id))
+          .map_err(|e| ClipboardError::ReadError(e.to_string()))?;
 
-				if data.is_empty() {
-					Err(ErrorWrapper::EmptyContent)
-				} else {
-					Ok(Some(data))
-				}
-			}
-			false => Ok(None),
-		}
-	}
+        if data.is_empty() {
+          Err(ErrorWrapper::EmptyContent)
+        } else {
+          Ok(Some(data))
+        }
+      }
+      false => Ok(None),
+    }
+  }
 
-	fn extract_png(
-		&self,
-		png_format: u32,
-		max_size: Option<u32>,
-	) -> Result<Option<Vec<u8>>, ErrorWrapper> {
-		self.extract_clipboard_format(png_format, max_size)
-	}
+  fn extract_png(
+    &self,
+    png_format: u32,
+    max_size: Option<u32>,
+  ) -> Result<Option<Vec<u8>>, ErrorWrapper> {
+    self.extract_clipboard_format(png_format, max_size)
+  }
 
-	fn extract_raw_image(
-		&self,
-		max_size: Option<u32>,
-	) -> Result<Option<DynamicImage>, ErrorWrapper> {
-		if let Some(bytes) = self.extract_clipboard_format(formats::CF_DIBV5, max_size)? {
-			let image = load_dib(&bytes)?;
+  fn extract_raw_image(&self, max_size: Option<u32>) -> Result<Option<DynamicImage>, ErrorWrapper> {
+    if let Some(bytes) = self.extract_clipboard_format(formats::CF_DIBV5, max_size)? {
+      let image = load_dib(&bytes)?;
 
-			Ok(Some(image))
-		} else if let Some(bytes) = self.extract_clipboard_format(formats::CF_DIB, max_size)? {
-			let image = load_dib(&bytes)?;
+      Ok(Some(image))
+    } else if let Some(bytes) = self.extract_clipboard_format(formats::CF_DIB, max_size)? {
+      let image = load_dib(&bytes)?;
 
-			Ok(Some(image))
-		} else {
-			Ok(None)
-		}
-	}
+      Ok(Some(image))
+    } else {
+      Ok(None)
+    }
+  }
 
-	fn extract_files_list(&self) -> Result<Option<Vec<PathBuf>>, ErrorWrapper> {
-		match self.contains_id(formats::FileList.into()) {
-			true => {
-				let mut files_list: Vec<PathBuf> = Vec::new();
-				if let Ok(_num_files) = formats::FileList.read_clipboard(&mut files_list) {
-					if files_list.is_empty() {
-						Err(ErrorWrapper::EmptyContent)
-					} else {
-						Ok(Some(files_list))
-					}
-				} else {
-					// Technically impossible since it's already in the list
-					Ok(None)
-				}
-			}
-			false => Ok(None),
-		}
-	}
+  fn extract_files_list(&self) -> Result<Option<Vec<PathBuf>>, ErrorWrapper> {
+    match self.contains_id(formats::FileList.into()) {
+      true => {
+        let mut files_list: Vec<PathBuf> = Vec::new();
+        if let Ok(_num_files) = formats::FileList.read_clipboard(&mut files_list) {
+          if files_list.is_empty() {
+            Err(ErrorWrapper::EmptyContent)
+          } else {
+            Ok(Some(files_list))
+          }
+        } else {
+          // Technically impossible since it's already in the list
+          Ok(None)
+        }
+      }
+      false => Ok(None),
+    }
+  }
 }
 
 impl WinObserver {
-	pub(crate) fn new(
-		stop: Arc<AtomicBool>,
-		monitor: Monitor,
-		custom_format_names: Vec<Arc<str>>,
-		interval: Option<Duration>,
-		max_bytes: Option<u32>,
-		gatekeeper: Option<Gatekeeper>,
-	) -> Result<Self, String> {
-		let html_format =
-			Html::new().ok_or("Failed to create html format identifier".to_string())?;
+  #[inline(never)]
+  #[cold]
+  pub(crate) fn new(
+    stop: Arc<AtomicBool>,
+    monitor: Monitor,
+    custom_format_names: Vec<Arc<str>>,
+    interval: Option<Duration>,
+    max_bytes: Option<u32>,
+    gatekeeper: Option<Gatekeeper>,
+  ) -> Result<Self, String> {
+    let html_format = Html::new().ok_or("Failed to create html format identifier".to_string())?;
 
-		let png_format = clipboard_win::register_format("PNG")
-			.ok_or("Failed to create png format identifier".to_string())?;
+    let png_format = clipboard_win::register_format("PNG")
+      .ok_or("Failed to create png format identifier".to_string())?;
 
-		let mut custom_formats = Formats::default();
-		let mut formats_cache: HashMap<u32, Arc<str>> = HashMap::new();
+    let mut custom_formats = Formats::default();
+    let mut formats_cache: HashMap<u32, Arc<str>> = HashMap::new();
 
-		for name in custom_format_names {
-			if let Some(id) = clipboard_win::register_format(name.as_ref()) {
-				formats_cache.insert(id.get(), name.clone());
-				custom_formats
-					.data
-					.push(Format { id: id.get(), name });
-			} else {
-				return Err(format!("Failed to register custom format `{name}`"));
-			}
-		}
+    for name in custom_format_names {
+      if let Some(id) = clipboard_win::register_format(name.as_ref()) {
+        formats_cache.insert(id.get(), name.clone());
+        custom_formats.data.push(Format { id: id.get(), name });
+      } else {
+        return Err(format!("Failed to register custom format `{name}`"));
+      }
+    }
 
-		Ok(Self {
-			stop,
-			monitor,
-			html_format,
-			png_format: png_format.get(),
-			custom_formats,
-			formats_cache,
-			interval: interval.unwrap_or_else(|| Duration::from_millis(200)),
-			max_size: max_bytes,
-			gatekeeper,
-		})
-	}
+    Ok(Self {
+      stop,
+      monitor,
+      html_format,
+      png_format: png_format.get(),
+      custom_formats,
+      formats_cache,
+      interval: interval.unwrap_or_else(|| Duration::from_millis(200)),
+      max_size: max_bytes,
+      gatekeeper,
+    })
+  }
 
-	// Reads the clipboard and extracts the first matching format, following the priority list
-	fn extract_clipboard_content(&mut self) -> Result<Option<Body>, ErrorWrapper> {
-		let formats = Formats {
-			data: EnumFormats::new()
-				.filter_map(|id| {
-					if let Some(name) = self.formats_cache.get(&id) {
-						Some(Format {
-							name: name.clone(),
-							id,
-						})
-					} else {
-						format_name_big(id).map(|name| {
-							let name: Arc<str> = name.into();
+  // Reads the clipboard and extracts the first matching format, following the priority list
+  fn extract_clipboard_content(&mut self) -> Result<Option<Body>, ErrorWrapper> {
+    let formats = Formats {
+      data: EnumFormats::new()
+        .filter_map(|id| {
+          if let Some(name) = self.formats_cache.get(&id) {
+            Some(Format {
+              name: name.clone(),
+              id,
+            })
+          } else {
+            format_name_big(id).map(|name| {
+              let name: Arc<str> = name.into();
 
-							self.formats_cache.insert(id, name.clone());
+              self.formats_cache.insert(id, name.clone());
 
-							Format { name, id }
-						})
-					}
-				})
-				.collect(),
-		};
+              Format { name, id }
+            })
+          }
+        })
+        .collect(),
+    };
 
-		let ctx = ClipboardContext { formats: &formats };
+    let ctx = ClipboardContext { formats: &formats };
 
-		if let Some(gatekeeper) = &self.gatekeeper
-			&& !gatekeeper(&ctx)
-		{
-			return Err(ErrorWrapper::UserSkipped);
-		}
+    if let Some(gatekeeper) = &self.gatekeeper
+      && !gatekeeper(&ctx)
+    {
+      return Err(ErrorWrapper::UserSkipped);
+    }
 
-		let max_size = self.max_size;
+    let max_size = self.max_size;
 
-		for format in self.custom_formats.iter() {
-			if let Some(bytes) = formats.extract_clipboard_format(format.id, max_size)? {
-				return Ok(Some(Body::new_custom(format.name.clone(), bytes)));
-			}
-		}
+    for format in self.custom_formats.iter() {
+      if let Some(bytes) = formats.extract_clipboard_format(format.id, max_size)? {
+        return Ok(Some(Body::new_custom(format.name.clone(), bytes)));
+      }
+    }
 
-		if let Some(png_bytes) = formats.extract_png(self.png_format, max_size)? {
-			// Extract the image path if we have a list of files with a single item
-			let image_path = formats
-				.extract_files_list()?
-				.filter(|list| list.len() == 1)
-				.map(|mut files| files.remove(0));
+    if let Some(png_bytes) = formats.extract_png(self.png_format, max_size)? {
+      // Extract the image path if we have a list of files with a single item
+      let image_path = formats
+        .extract_files_list()?
+        .filter(|list| list.len() == 1)
+        .map(|mut files| files.remove(0));
 
-			Ok(Some(Body::new_png(png_bytes, image_path)))
-		} else if let Some(image) = formats.extract_raw_image(max_size)? {
-			// Extract the image path if we have a list of files with a single item
-			let image_path = formats
-				.extract_files_list()?
-				.filter(|list| list.len() == 1)
-				.map(|mut files| files.remove(0));
+      Ok(Some(Body::new_png(png_bytes, image_path)))
+    } else if let Some(image) = formats.extract_raw_image(max_size)? {
+      // Extract the image path if we have a list of files with a single item
+      let image_path = formats
+        .extract_files_list()?
+        .filter(|list| list.len() == 1)
+        .map(|mut files| files.remove(0));
 
-			Ok(Some(Body::new_image(image, image_path)))
-		} else if let Some(files_list) = formats.extract_files_list()? {
-			Ok(Some(Body::new_file_list(files_list)))
-		} else {
-			let mut text = String::new();
+      Ok(Some(Body::new_image(image, image_path)))
+    } else if let Some(files_list) = formats.extract_files_list()? {
+      Ok(Some(Body::new_file_list(files_list)))
+    } else {
+      let mut text = String::new();
 
-			if self.html_format.read_clipboard(&mut text).is_ok() && content_is_not_empty(&text)? {
-				Ok(Some(Body::new_html(text)))
-			} else if let Ok(_num_bytes) = formats::Unicode.read_clipboard(&mut text)
-				&& content_is_not_empty(&text)?
-			{
-				Ok(Some(Body::new_text(text)))
-			} else {
-				Ok(None)
-			}
-		}
-	}
+      if self.html_format.read_clipboard(&mut text).is_ok() && content_is_not_empty(&text)? {
+        Ok(Some(Body::new_html(text)))
+      } else if let Ok(_num_bytes) = formats::Unicode.read_clipboard(&mut text)
+        && content_is_not_empty(&text)?
+      {
+        Ok(Some(Body::new_text(text)))
+      } else {
+        Ok(None)
+      }
+    }
+  }
 
-	// Calls the extractor and unwraps the error, if one was encountered
-	fn get_clipboard_content(&mut self) -> Result<Option<Body>, ClipboardError> {
-		let _clipboard =
-			Clipboard::new_attempts(10).map_err(|e| ClipboardError::ReadError(e.to_string()))?;
+  // Calls the extractor and unwraps the error, if one was encountered
+  fn get_clipboard_content(&mut self) -> Result<Option<Body>, ClipboardError> {
+    let _clipboard =
+      Clipboard::new_attempts(10).map_err(|e| ClipboardError::ReadError(e.to_string()))?;
 
-		match self.extract_clipboard_content() {
-			// Found content
-			Ok(Some(content)) => Ok(Some(content)),
+    match self.extract_clipboard_content() {
+      // Found content
+      Ok(Some(content)) => Ok(Some(content)),
 
-			// Non-fatal errors, we just return None
-			Err(ErrorWrapper::EmptyContent) => {
-				trace!("Found empty content. Skipping it...");
-				Ok(None)
-			}
+      // Non-fatal errors, we just return None
+      Err(ErrorWrapper::EmptyContent) => {
+        trace!("Found empty content. Skipping it...");
+        Ok(None)
+      }
 
-			Err(ErrorWrapper::SizeTooLarge | ErrorWrapper::UserSkipped) => Ok(None),
+      Err(ErrorWrapper::SizeTooLarge | ErrorWrapper::UserSkipped) => Ok(None),
 
-			// Actual error
-			Err(ErrorWrapper::ReadError(e)) => Err(e),
+      // Actual error
+      Err(ErrorWrapper::ReadError(e)) => Err(e),
 
-			// There was content but we could not read it
-			Ok(None) => Err(ClipboardError::NoMatchingFormat),
-		}
-	}
+      // There was content but we could not read it
+      Ok(None) => Err(ClipboardError::NoMatchingFormat),
+    }
+  }
 }
 
 impl Observer for WinObserver {
-	fn observe(&mut self, body_senders: Arc<BodySenders>) {
-		info!("Started monitoring the clipboard");
+  fn observe(&mut self, body_senders: Arc<BodySenders>) {
+    info!("Started monitoring the clipboard");
 
-		while !self.stop.load(Ordering::Relaxed) {
-			let monitor = &mut self.monitor;
+    while !self.stop.load(Ordering::Relaxed) {
+      let monitor = &mut self.monitor;
 
-			match monitor.try_recv() {
-				Ok(true) => {
-					match self.get_clipboard_content() {
-						Ok(Some(body)) => {
-							body_senders.send_all(Ok(Arc::new(body)));
-						}
-						Err(e) => {
-							warn!("{e}");
+      match monitor.try_recv() {
+        Ok(true) => {
+          match self.get_clipboard_content() {
+            Ok(Some(body)) => {
+              body_senders.send_all(&Ok(Arc::new(body)));
+            }
+            Err(e) => {
+              warn!("{e}");
 
-							body_senders.send_all(Err(e));
-						}
-						// Found content but ignored it (empty or too large)
-						Ok(None) => {}
-					};
-				}
-				Ok(false) => {
-					// No event, waiting
-					std::thread::sleep(self.interval);
-				}
-				Err(e) => {
-					let error = ClipboardError::MonitorFailed(e.to_string());
+              body_senders.send_all(&Err(e));
+            }
+            // Found content but ignored it (empty or too large)
+            Ok(None) => {}
+          };
+        }
+        Ok(false) => {
+          // No event, waiting
+          std::thread::sleep(self.interval);
+        }
+        Err(e) => {
+          let error = ClipboardError::MonitorFailed(e.to_string());
 
-					error!("{error}");
+          error!("{error}");
 
-					body_senders.send_all(Err(error));
+          body_senders.send_all(&Err(error));
 
-					error!("Fatal error, terminating clipboard watcher");
-					break;
-				}
-			}
-		}
-	}
+          error!("Fatal error, terminating clipboard watcher");
+          break;
+        }
+      }
+    }
+  }
 }
 
 // We use a result rather than a simple boolean to trigger early exits and reduce verbosity
 const fn content_is_not_empty(content: &str) -> Result<bool, ErrorWrapper> {
-	if content.is_empty() {
-		Err(ErrorWrapper::EmptyContent)
-	} else {
-		Ok(true)
-	}
+  if content.is_empty() {
+    Err(ErrorWrapper::EmptyContent)
+  } else {
+    Ok(true)
+  }
 }
 
 // We use the error wrapper to trigger early exit in case a format is present but not valid, to avoid checking other formats needlessly
 
 fn load_dib(bytes: &[u8]) -> Result<DynamicImage, ClipboardError> {
-	use std::io::Cursor;
+  use std::io::Cursor;
 
-	use image::{DynamicImage, codecs::bmp::BmpDecoder};
+  use image::{DynamicImage, codecs::bmp::BmpDecoder};
 
-	let cursor = Cursor::new(bytes);
+  let cursor = Cursor::new(bytes);
 
-	let decoder = BmpDecoder::new_without_file_header(cursor)
-		.map_err(|e| ClipboardError::ReadError(format!("Failed to load DIB image: {e}")))?;
+  let decoder = BmpDecoder::new_without_file_header(cursor)
+    .map_err(|e| ClipboardError::ReadError(format!("Failed to load DIB image: {e}")))?;
 
-	DynamicImage::from_decoder(decoder)
-		.map_err(|e| ClipboardError::ReadError(format!("Failed to load DIB image: {e}")))
+  DynamicImage::from_decoder(decoder)
+    .map_err(|e| ClipboardError::ReadError(format!("Failed to load DIB image: {e}")))
 }

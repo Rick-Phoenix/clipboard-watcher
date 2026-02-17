@@ -5,30 +5,31 @@ use crate::*;
 /// When the clipboard is updated, the [`ClipboardStream`] polls for the yields the new data.
 #[derive(Debug)]
 pub struct ClipboardStream {
-	pub(crate) id: StreamId,
-	pub(crate) body_rx: Pin<Box<Receiver<ClipboardResult>>>,
-	pub(crate) body_senders: Arc<BodySenders>,
+  pub(crate) id: StreamId,
+  pub(crate) body_rx: Pin<Box<Receiver<ClipboardResult>>>,
+  pub(crate) body_senders: Arc<BodySenders>,
 }
 
 impl ClipboardStream {
-	#[must_use]
-	pub const fn id(&self) -> &StreamId {
-		&self.id
-	}
+  #[must_use]
+  pub const fn id(&self) -> &StreamId {
+    &self.id
+  }
 }
 
 impl Stream for ClipboardStream {
-	type Item = ClipboardResult;
+  type Item = ClipboardResult;
 
-	fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-		self.body_rx.as_mut().poll_next(cx)
-	}
+  #[inline]
+  fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+    self.body_rx.as_mut().poll_next(cx)
+  }
 }
 
 impl Drop for ClipboardStream {
-	fn drop(&mut self) {
-		self.body_senders.unregister(&self.id);
-	}
+  fn drop(&mut self) {
+    self.body_senders.unregister(&self.id);
+  }
 }
 
 /// An Id to specify the [`ClipboardStream`].

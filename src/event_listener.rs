@@ -6,128 +6,135 @@ use crate::*;
 ///
 /// Use the [`builder`](ClipboardEventListener::builder) method to customize the options for the listener.
 pub struct ClipboardEventListener {
-	pub(crate) stop_signal: Arc<AtomicBool>,
-	pub(crate) thread_handle: Option<JoinHandle<()>>,
-	body_senders: Arc<BodySenders>,
-	next_id: AtomicUsize,
+  pub(crate) stop_signal: Arc<AtomicBool>,
+  pub(crate) thread_handle: Option<JoinHandle<()>>,
+  body_senders: Arc<BodySenders>,
+  next_id: AtomicUsize,
 }
 
 /// The builder for the [`ClipboardEventListener`]. It can be used to specify more customized options such as the polling interval, or a list of custom clipboard formats.
 #[derive(Default)]
 pub struct ClipboardEventListenerBuilder {
-	pub(crate) interval: Option<Duration>,
-	pub(crate) custom_formats: Vec<Arc<str>>,
-	pub(crate) max_bytes: Option<u32>,
-	pub(crate) gatekeeper: Option<Gatekeeper>,
+  pub(crate) interval: Option<Duration>,
+  pub(crate) custom_formats: Vec<Arc<str>>,
+  pub(crate) max_bytes: Option<u32>,
+  pub(crate) gatekeeper: Option<Gatekeeper>,
 }
 
 impl ClipboardEventListenerBuilder {
-	/// Defines the polling interval for the clipboard monitoring. If unset, it defaults to 200 milliseconds.
-	#[must_use]
-	pub const fn interval(mut self, duration: Duration) -> Self {
-		self.interval = Some(duration);
-		self
-	}
+  /// Defines the polling interval for the clipboard monitoring. If unset, it defaults to 200 milliseconds.
+  #[must_use]
+  #[inline]
+  pub const fn interval(mut self, duration: Duration) -> Self {
+    self.interval = Some(duration);
+    self
+  }
 
-	#[must_use]
-	pub fn with_gatekeeper(
-		mut self,
-		gatekeeper: impl Fn(&ClipboardContext) -> bool + Send + Sync + 'static,
-	) -> Self {
-		self.gatekeeper = Some(Box::new(gatekeeper));
-		self
-	}
+  #[must_use]
+  #[inline]
+  pub fn with_gatekeeper(
+    mut self,
+    gatekeeper: impl Fn(&ClipboardContext) -> bool + Send + Sync + 'static,
+  ) -> Self {
+    self.gatekeeper = Some(Box::new(gatekeeper));
+    self
+  }
 
-	/// Adds a list of custom clipboard formats to the list of formats to monitor.
-	///
-	/// In cases where a clipboard item can match more than one format in this list, only the first will be selected.
-	///
-	/// Custom formats are always extracted with a higher priority than normal formats. See [`Body`](crate::Body) for more information about the extraction priority.
-	#[must_use]
-	pub fn with_custom_formats<I, S>(mut self, formats: I) -> Self
-	where
-		I: IntoIterator<Item = S>,
-		S: AsRef<str>,
-	{
-		self.custom_formats = formats
-			.into_iter()
-			.map(|s| s.as_ref().into())
-			.collect();
-		self
-	}
+  /// Adds a list of custom clipboard formats to the list of formats to monitor.
+  ///
+  /// In cases where a clipboard item can match more than one format in this list, only the first will be selected.
+  ///
+  /// Custom formats are always extracted with a higher priority than normal formats. See [`Body`](crate::Body) for more information about the extraction priority.
+  #[must_use]
+  #[inline]
+  pub fn with_custom_formats<I, S>(mut self, formats: I) -> Self
+  where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+  {
+    self.custom_formats = formats.into_iter().map(|s| s.as_ref().into()).collect();
+    self
+  }
 
-	/// Sets a maximum allowed size limit. It only applies to custom formats or to images, but not to text-based formats like html or plain text.
-	///
-	/// The various platform-specific implementations will attempt to use a performant method to check the size of the clipboard items without loading their content into a buffer, so this can be useful to avoid processing large files such as high-definition images.
-	#[must_use]
-	pub const fn max_size(mut self, max_bytes: u32) -> Self {
-		self.max_bytes = Some(max_bytes);
-		self
-	}
+  /// Sets a maximum allowed size limit. It only applies to custom formats or to images, but not to text-based formats like html or plain text.
+  ///
+  /// The various platform-specific implementations will attempt to use a performant method to check the size of the clipboard items without loading their content into a buffer, so this can be useful to avoid processing large files such as high-definition images.
+  #[must_use]
+  #[inline]
+  pub const fn max_size(mut self, max_bytes: u32) -> Self {
+    self.max_bytes = Some(max_bytes);
+    self
+  }
 
-	/// Spawns the [`ClipboardEventListener`].
-	pub fn spawn(self) -> Result<ClipboardEventListener, InitializationError> {
-		let body_senders = Arc::new(BodySenders::new());
+  /// Spawns the [`ClipboardEventListener`].
+  #[inline(never)]
+  #[cold]
+  pub fn spawn(self) -> Result<ClipboardEventListener, InitializationError> {
+    let body_senders = Arc::new(BodySenders::new());
 
-		let driver = Driver::new(
-			body_senders.clone(),
-			self.interval,
-			self.custom_formats,
-			self.max_bytes,
-			self.gatekeeper,
-		)?;
+    let driver = Driver::new(
+      body_senders.clone(),
+      self.interval,
+      self.custom_formats,
+      self.max_bytes,
+      self.gatekeeper,
+    )?;
 
-		Ok(ClipboardEventListener {
-			stop_signal: driver.stop,
-			thread_handle: driver.handle,
-			body_senders,
-			next_id: AtomicUsize::new(0),
-		})
-	}
+    Ok(ClipboardEventListener {
+      stop_signal: driver.stop,
+      thread_handle: driver.handle,
+      body_senders,
+      next_id: AtomicUsize::new(0),
+    })
+  }
 }
 
 impl ClipboardEventListener {
-	/// Creates an instance of a [`ClipboardEventListenerBuilder`], which can be used to specify custom options for the listener.
-	#[must_use]
-	pub fn builder() -> ClipboardEventListenerBuilder {
-		ClipboardEventListenerBuilder::default()
-	}
+  /// Creates an instance of a [`ClipboardEventListenerBuilder`], which can be used to specify custom options for the listener.
+  #[must_use]
+  #[inline]
+  pub fn builder() -> ClipboardEventListenerBuilder {
+    ClipboardEventListenerBuilder::default()
+  }
 
-	/// Creates a new [`ClipboardEventListener`] that monitors clipboard changes in a dedicated OS thread.
-	///
-	/// Uses all of the default options.
-	pub fn spawn() -> Result<Self, InitializationError> {
-		Self::builder().spawn()
-	}
+  /// Creates a new [`ClipboardEventListener`] that monitors clipboard changes in a dedicated OS thread.
+  ///
+  /// Uses all of the default options.
+  #[inline]
+  pub fn spawn() -> Result<Self, InitializationError> {
+    Self::builder().spawn()
+  }
 
-	/// Creates a [`ClipboardStream`] for receiving clipboard change items as [`Body`](crate::body::Body).
-	///
-	/// # Buffer size
-	/// This method takes a buffer size. Items are buffered when not received immediately.
-	/// The actual buffer capacity is `buf_size + 2`, where the extra `2` accounts for the
-	/// number of internal senders used by the library.
-	pub fn new_stream(&mut self, buffer: usize) -> ClipboardStream {
-		let (tx, rx) = mpsc::channel(buffer);
-		let id = StreamId(self.next_id.fetch_add(1, Ordering::Relaxed));
-		self.body_senders.register(id.clone(), tx);
+  /// Creates a [`ClipboardStream`] for receiving clipboard change items as [`Body`](crate::body::Body).
+  ///
+  /// # Buffer size
+  /// This method takes a buffer size. Items are buffered when not received immediately.
+  /// The actual buffer capacity is `buf_size + 2`, where the extra `2` accounts for the
+  /// number of internal senders used by the library.
+  #[inline(never)]
+  #[cold]
+  pub fn new_stream(&mut self, buffer: usize) -> ClipboardStream {
+    let (tx, rx) = mpsc::channel(buffer);
+    let id = StreamId(self.next_id.fetch_add(1, Ordering::Relaxed));
+    self.body_senders.register(id.clone(), tx);
 
-		ClipboardStream {
-			id,
-			body_rx: Box::pin(rx),
-			body_senders: self.body_senders.clone(),
-		}
-	}
+    ClipboardStream {
+      id,
+      body_rx: Box::pin(rx),
+      body_senders: self.body_senders.clone(),
+    }
+  }
 }
 
 impl Drop for ClipboardEventListener {
-	fn drop(&mut self) {
-		// Change the AtomicBool, stop the observers
-		self.stop_signal.store(true, Ordering::Relaxed);
+  fn drop(&mut self) {
+    // Change the AtomicBool, stop the observers
+    self.stop_signal.store(true, Ordering::Relaxed);
 
-		// Wait for the thread to finish
-		// We use option + take here because join consumes the value
-		if let Some(handle) = self.thread_handle.take() {
-			handle.join().unwrap();
-		}
-	}
+    // Wait for the thread to finish
+    // We use option + take here because join consumes the value
+    if let Some(handle) = self.thread_handle.take() {
+      handle.join().unwrap();
+    }
+  }
 }
