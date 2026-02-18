@@ -12,13 +12,13 @@ use objc2_app_kit::{
 };
 use objc2_foundation::{NSArray, NSData, NSDictionary, NSNumber, NSString, NSURL};
 
-pub(crate) struct OSXObserver {
+pub(crate) struct OSXObserver<G: Gatekeeper = DefaultGatekeeper> {
   stop_signal: Arc<AtomicBool>,
   pasteboard: Retained<NSPasteboard>,
   interval: Duration,
   custom_formats: Formats,
   max_size: Option<u32>,
-  gatekeeper: Option<Gatekeeper>,
+  gatekeeper: G,
 }
 
 impl ClipboardContext<'_> {
@@ -36,7 +36,7 @@ impl Formats {
   }
 }
 
-impl OSXObserver {
+impl<G: Gatekeeper> OSXObserver<G> {
   #[inline(never)]
   #[cold]
   pub(crate) fn new(
@@ -44,7 +44,7 @@ impl OSXObserver {
     interval: Option<Duration>,
     custom_format_names: Vec<Arc<str>>,
     max_size: Option<u32>,
-    gatekeeper: Option<Gatekeeper>,
+    gatekeeper: G,
   ) -> Self {
     let pasteboard = unsafe { NSPasteboard::generalPasteboard() };
     let custom_formats: Formats = custom_format_names
@@ -66,7 +66,7 @@ impl OSXObserver {
   }
 }
 
-impl Observer for OSXObserver {
+impl<G: Gatekeeper> Observer for OSXObserver<G> {
   fn observe(&mut self, body_senders: Arc<BodySenders>) {
     let mut last_count = self.get_change_count();
 
@@ -94,7 +94,7 @@ impl Observer for OSXObserver {
   }
 }
 
-impl OSXObserver {
+impl<G: Gatekeeper> OSXObserver<G> {
   fn get_available_formats(&self) -> Result<Formats, ErrorWrapper> {
     unsafe {
       // 1. Get the NSArray of types
@@ -257,9 +257,7 @@ impl OSXObserver {
         pasteboard: &self.pasteboard,
       };
 
-      if let Some(gatekeeper) = &self.gatekeeper
-        && !gatekeeper(&ctx)
-      {
+      if !self.gatekeeper.check(ctx) {
         return Err(ErrorWrapper::UserSkipped);
       }
 

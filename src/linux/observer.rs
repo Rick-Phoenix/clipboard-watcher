@@ -10,14 +10,14 @@ use x11rb::{
   rust_connection::RustConnection,
 };
 
-pub(crate) struct LinuxObserver {
+pub(crate) struct LinuxObserver<G: Gatekeeper = DefaultGatekeeper> {
   stop_signal: Arc<AtomicBool>,
   interval: Duration,
   max_size: Option<u32>,
   custom_formats: Formats,
   x11: X11Context,
   atoms_cache: HashMap<Atom, Arc<str>>,
-  gatekeeper: Option<Gatekeeper>,
+  gatekeeper: G,
 }
 
 pub(crate) struct X11Context {
@@ -39,7 +39,7 @@ impl ClipboardContext<'_> {
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(3);
 
-impl LinuxObserver {
+impl<G: Gatekeeper> LinuxObserver<G> {
   #[inline(never)]
   #[cold]
   pub(crate) fn new(
@@ -47,21 +47,20 @@ impl LinuxObserver {
     interval: Option<Duration>,
     max_size: Option<u32>,
     custom_formats: Vec<Arc<str>>,
-    gatekeeper: Option<Gatekeeper>,
+    gatekeeper: G,
   ) -> Result<Self, String> {
-    let (conn, screen_id) =
-      x11rb::connect(None).map_err(|e| format!("Failed to connect to the x11 server: {e}"))?;
+    let (conn, screen_id) = x11rb::connect(None).context("Failed to connect to the x11 server")?;
 
     let win_id = conn
       .generate_id()
-      .map_err(|e| format!("Failed to generate a window id: {e}"))?;
+      .context("Failed to generate a window id")?;
 
     {
       let screen = conn
         .setup()
         .roots
         .get(screen_id)
-        .ok_or("Failed to get the root window".to_string())?;
+        .context("Failed to get the root window")?;
 
       conn
         .create_window(
@@ -78,15 +77,15 @@ impl LinuxObserver {
           &CreateWindowAux::new()
             .event_mask(EventMask::STRUCTURE_NOTIFY | EventMask::PROPERTY_CHANGE),
         )
-        .map_err(|e| format!("Failed to create a new x11 window: {e}"))?
+        .context("Failed to create a new x11 window")?
         .check()
-        .map_err(|e| format!("Failed to create a new x11 window: {e}"))?;
+        .context("Failed to create a new x11 window")?;
     }
 
     let atoms = Atoms::new(&conn)
-      .map_err(|e| format!("Failed to get the atoms identifiers: {e}"))?
+      .context("Failed to get the atoms identifiers")?
       .reply()
-      .map_err(|e| format!("Failed to get the atoms identifiers: {e}"))?;
+      .context("Failed to get the atoms identifiers")?;
 
     let custom_formats = register_custom_formats(&conn, custom_formats)?;
     let mut atoms_cache: HashMap<u32, Arc<str>> = HashMap::new();
@@ -99,11 +98,10 @@ impl LinuxObserver {
       .setup()
       .roots
       .get(screen_id)
-      .ok_or_else(|| "Failed to connect to the root window".to_string())?;
+      .context("Failed to connect to the root window")?;
 
     // Check xfixes presence
-    xfixes::query_version(&conn, 5, 0)
-      .map_err(|e| format!("Failed to query xfixes version: {e}"))?;
+    xfixes::query_version(&conn, 5, 0).context("Failed to query xfixes version")?;
 
     // Watch for events on the clipboard
     // Cookie = request id
@@ -113,11 +111,11 @@ impl LinuxObserver {
       atoms.CLIPBOARD,
       xfixes::SelectionEventMask::SET_SELECTION_OWNER,
     )
-    .map_err(|e| format!("Failed to select selection input with xfixes: {e}"))?;
+    .context("Failed to select selection input with xfixes")?;
 
     cookie
       .check()
-      .map_err(|e| format!("Failed to get response from the X11 server: {e}"))?;
+      .context("Failed to get response from the X11 server")?;
 
     Ok(Self {
       stop_signal: stop,
@@ -135,7 +133,7 @@ impl LinuxObserver {
   }
 }
 
-impl Observer for LinuxObserver {
+impl<G: Gatekeeper> Observer for LinuxObserver<G> {
   fn observe(&mut self, body_senders: Arc<BodySenders>) {
     info!("Started monitoring the clipboard");
 
@@ -175,7 +173,7 @@ impl Observer for LinuxObserver {
   }
 }
 
-impl LinuxObserver {
+impl<G: Gatekeeper> LinuxObserver<G> {
   // Calls the extractor and unwraps the error
   fn poll_clipboard(&mut self) -> Result<Option<Body>, ClipboardError> {
     match self.get_clipboard_content() {
@@ -203,9 +201,7 @@ impl LinuxObserver {
       x11: &self.x11,
     };
 
-    if let Some(gatekeeper) = &self.gatekeeper
-      && !gatekeeper(&ctx)
-    {
+    if !self.gatekeeper.check(ctx) {
       return Err(ErrorWrapper::UserSkipped);
     }
 
@@ -302,7 +298,7 @@ fn to_read_error<T: Display>(error: T) -> ErrorWrapper {
   ErrorWrapper::ReadError(ClipboardError::ReadError(error.to_string()))
 }
 
-impl LinuxObserver {
+impl<G: Gatekeeper> LinuxObserver<G> {
   fn resolve_atom_names(&mut self, atoms: &[Atom]) -> Result<Formats, ErrorWrapper> {
     let mut formats: Vec<Format> = Vec::new();
     let mut missing_atoms: Vec<Atom> = Vec::new();
@@ -364,8 +360,7 @@ impl LinuxObserver {
       self.x11.atoms.SAVE_TARGETS,
     ];
 
-    // The data is a raw byte buffer. An Atom is a u32 (4 bytes).
-    // We need to convert the Vec<u8> into a Vec<Atom>.
+    // Convert the Vec<u8> into a Vec<Atom>
     let available_formats: Vec<Atom> = prop_reply
       // Split in chunks of 4 bytes
       .chunks_exact(4)

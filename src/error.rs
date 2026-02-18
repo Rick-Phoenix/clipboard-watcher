@@ -1,8 +1,24 @@
-use std::{convert::Infallible, sync::Arc};
+use std::{convert::Infallible, fmt::Display, sync::Arc};
 
 use thiserror::Error;
 
 use crate::Body;
+
+pub(crate) trait WithContext<T> {
+  fn context(self, msg: &str) -> Result<T, String>;
+}
+
+impl<T, E: Display> WithContext<T> for Result<T, E> {
+  fn context(self, msg: &str) -> Result<T, String> {
+    self.map_err(|e| format!("{msg}: {e}"))
+  }
+}
+
+impl<T> WithContext<T> for Option<T> {
+  fn context(self, msg: &str) -> Result<T, String> {
+    self.ok_or_else(|| msg.to_string())
+  }
+}
 
 /// An error encountered while initializing the clipboard watcher
 #[derive(Clone, Debug, Error)]

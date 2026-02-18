@@ -67,6 +67,7 @@ impl<'a> IntoIterator for &'a Formats {
   }
 }
 
+#[derive(Clone, Copy)]
 pub struct ClipboardContext<'a> {
   formats: &'a Formats,
   #[cfg(target_os = "linux")]
@@ -113,7 +114,29 @@ impl ClipboardContext<'_> {
   }
 }
 
-pub type Gatekeeper = Box<dyn Fn(&ClipboardContext) -> bool + Send + Sync>;
+pub trait Gatekeeper: Send + Sync + 'static {
+  fn check(&self, ctx: ClipboardContext) -> bool;
+}
+
+impl<F> Gatekeeper for F
+where
+  F: Fn(ClipboardContext) -> bool + Send + Sync + 'static,
+{
+  #[inline]
+  fn check(&self, ctx: ClipboardContext) -> bool {
+    (self)(ctx)
+  }
+}
+
+#[derive(Default)]
+pub struct DefaultGatekeeper;
+
+impl Gatekeeper for DefaultGatekeeper {
+  #[inline]
+  fn check(&self, _: ClipboardContext) -> bool {
+    true
+  }
+}
 
 #[derive(Debug, Clone)]
 pub struct Format {
@@ -132,7 +155,7 @@ impl Format {
   }
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct Formats {
   pub(crate) data: Vec<Format>,
 }
@@ -146,7 +169,7 @@ impl Formats {
   #[cfg(not(target_os = "macos"))]
   #[must_use]
   #[inline]
-  pub fn contains_id(&self, id: u32) -> bool {
+  pub(crate) fn contains_id(&self, id: u32) -> bool {
     self.data.iter().any(|d| d.id == id)
   }
 }

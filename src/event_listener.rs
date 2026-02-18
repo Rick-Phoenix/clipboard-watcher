@@ -14,14 +14,14 @@ pub struct ClipboardEventListener {
 
 /// The builder for the [`ClipboardEventListener`]. It can be used to specify more customized options such as the polling interval, or a list of custom clipboard formats.
 #[derive(Default)]
-pub struct ClipboardEventListenerBuilder {
+pub struct ClipboardEventListenerBuilder<G = DefaultGatekeeper> {
   pub(crate) interval: Option<Duration>,
   pub(crate) custom_formats: Vec<Arc<str>>,
   pub(crate) max_bytes: Option<u32>,
-  pub(crate) gatekeeper: Option<Gatekeeper>,
+  pub(crate) gatekeeper: G,
 }
 
-impl ClipboardEventListenerBuilder {
+impl<G: Gatekeeper> ClipboardEventListenerBuilder<G> {
   /// Defines the polling interval for the clipboard monitoring. If unset, it defaults to 200 milliseconds.
   #[must_use]
   #[inline]
@@ -32,12 +32,16 @@ impl ClipboardEventListenerBuilder {
 
   #[must_use]
   #[inline]
-  pub fn with_gatekeeper(
-    mut self,
-    gatekeeper: impl Fn(&ClipboardContext) -> bool + Send + Sync + 'static,
-  ) -> Self {
-    self.gatekeeper = Some(Box::new(gatekeeper));
-    self
+  pub fn with_gatekeeper<F>(self, gatekeeper: F) -> ClipboardEventListenerBuilder<F>
+  where
+    F: Fn(ClipboardContext) -> bool + Send + Sync + 'static,
+  {
+    ClipboardEventListenerBuilder {
+      interval: self.interval,
+      custom_formats: self.custom_formats,
+      max_bytes: self.max_bytes,
+      gatekeeper,
+    }
   }
 
   /// Adds a list of custom clipboard formats to the list of formats to monitor.

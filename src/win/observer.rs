@@ -7,7 +7,7 @@ use image::DynamicImage;
 
 use crate::*;
 
-pub(crate) struct WinObserver {
+pub(crate) struct WinObserver<G: Gatekeeper = DefaultGatekeeper> {
   stop: Arc<AtomicBool>,
   monitor: Monitor,
   html_format: Html,
@@ -16,7 +16,7 @@ pub(crate) struct WinObserver {
   formats_cache: HashMap<u32, Arc<str>>,
   interval: Duration,
   max_size: Option<u32>,
-  gatekeeper: Option<Gatekeeper>,
+  gatekeeper: G,
 }
 
 impl ClipboardContext<'_> {
@@ -130,7 +130,7 @@ impl Formats {
   }
 }
 
-impl WinObserver {
+impl<G: Gatekeeper> WinObserver<G> {
   #[inline(never)]
   #[cold]
   pub(crate) fn new(
@@ -139,7 +139,7 @@ impl WinObserver {
     custom_format_names: Vec<Arc<str>>,
     interval: Option<Duration>,
     max_bytes: Option<u32>,
-    gatekeeper: Option<Gatekeeper>,
+    gatekeeper: G,
   ) -> Result<Self, String> {
     let html_format = Html::new().ok_or("Failed to create html format identifier".to_string())?;
 
@@ -196,9 +196,7 @@ impl WinObserver {
 
     let ctx = ClipboardContext { formats: &formats };
 
-    if let Some(gatekeeper) = &self.gatekeeper
-      && !gatekeeper(&ctx)
-    {
+    if !self.gatekeeper.check(ctx) {
       return Err(ErrorWrapper::UserSkipped);
     }
 
@@ -269,7 +267,7 @@ impl WinObserver {
   }
 }
 
-impl Observer for WinObserver {
+impl<G: Gatekeeper> Observer for WinObserver<G> {
   fn observe(&mut self, body_senders: Arc<BodySenders>) {
     info!("Started monitoring the clipboard");
 

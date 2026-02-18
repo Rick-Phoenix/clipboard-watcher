@@ -5,12 +5,12 @@ impl Driver {
   #[inline(never)]
   #[cold]
   /// Construct [`Driver`] and spawn a thread for monitoring clipboard events
-  pub(crate) fn new(
+  pub(crate) fn new<G: Gatekeeper>(
     body_senders: Arc<BodySenders>,
     interval: Option<Duration>,
     custom_formats: Vec<Arc<str>>,
     max_bytes: Option<u32>,
-    gatekeeper: Option<Gatekeeper>,
+    gatekeeper: G,
   ) -> Result<Self, Infallible> {
     let stop = Arc::new(AtomicBool::new(false));
 
