@@ -19,8 +19,8 @@ update-changelog version:
       git commit -m "updated changelog"
     fi
 
-release-test version="patch":
+release-test version="patch": test
     cargo release {{ version }}
 
-release-exec version: (update-changelog version)
+release-exec version: test (update-changelog version)
     cargo release {{ version }} --execute
