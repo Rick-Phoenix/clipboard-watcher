@@ -30,6 +30,7 @@ impl<G: Gatekeeper> ClipboardEventListenerBuilder<G> {
     self
   }
 
+  /// Sets the [`Gatekeeper`] for this listener, which indicates whether the clipboard content should be processed at any given moment or not.
   #[must_use]
   #[inline]
   pub fn with_gatekeeper<F>(self, gatekeeper: F) -> ClipboardEventListenerBuilder<F>

@@ -1,6 +1,6 @@
 use crate::*;
 
-/// Asynchronous stream for fetching clipboard item.
+/// Asynchronous stream for the content of the system clipboard.
 ///
 /// When the clipboard is updated, the [`ClipboardStream`] polls for the yields the new data.
 #[derive(Debug)]
@@ -27,4 +27,4 @@ impl Drop for ClipboardStream {
 
 /// An Id to specify the [`ClipboardStream`].
 #[derive(Debug, Clone, Eq, Hash, PartialEq)]
-pub struct StreamId(pub(crate) usize);
+pub(crate) struct StreamId(pub(crate) usize);

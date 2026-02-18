@@ -28,6 +28,7 @@ pub(crate) struct X11Context {
 }
 
 impl ClipboardContext<'_> {
+  /// Attempts to extract the data for a particular [`Format`].
   #[must_use]
   #[inline]
   pub fn get_data(&self, format: &Format) -> Option<Vec<u8>> {

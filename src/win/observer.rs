@@ -20,6 +20,7 @@ pub(crate) struct WinObserver<G: Gatekeeper = DefaultGatekeeper> {
 }
 
 impl ClipboardContext<'_> {
+  /// Attempts to extract the data for a particular [`Format`].
   #[cfg(windows)]
   #[must_use]
   #[inline]

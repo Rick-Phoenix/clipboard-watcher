@@ -22,6 +22,7 @@ pub(crate) struct OSXObserver<G: Gatekeeper = DefaultGatekeeper> {
 }
 
 impl ClipboardContext<'_> {
+  /// Attempts to extract the data for a particular [`Format`].
   #[must_use]
   pub fn get_data(&self, format: &Format) -> Option<Vec<u8>> {
     extract_clipboard_format_macos(&self.pasteboard, self.formats, &format.id, None).ok()?

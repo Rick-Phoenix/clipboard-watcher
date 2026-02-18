@@ -5,16 +5,16 @@ use futures::{
   channel::mpsc::{self, Receiver, Sender},
 };
 use log::{debug, error, info, trace, warn};
-use std::sync::{
-  Arc, Mutex,
-  atomic::{AtomicBool, AtomicUsize, Ordering},
-  mpsc::sync_channel,
-};
 use std::{
   collections::HashMap,
   fmt::Display,
   path::PathBuf,
   pin::Pin,
+  sync::{
+    Arc, Mutex,
+    atomic::{AtomicBool, AtomicUsize, Ordering},
+    mpsc::sync_channel,
+  },
   task::{Context, Poll},
   thread::JoinHandle,
   time::Duration,
@@ -22,51 +22,56 @@ use std::{
 
 mod body;
 pub use body::*;
+
 mod body_senders;
 use body_senders::*;
-mod driver;
-use driver::Driver;
+
 mod error;
 pub use error::*;
 
 mod event_listener;
 pub use event_listener::*;
 
-pub(crate) mod logging;
+mod logging;
 use logging::*;
 
-mod observer;
-use observer::Observer;
 mod stream;
 pub use stream::*;
 
+mod formats;
+pub use formats::*;
+
 #[cfg(target_os = "linux")]
-mod linux;
+mod linux {
+  pub(crate) mod driver;
+  pub(crate) mod observer;
+}
 #[cfg(target_os = "macos")]
-mod macos;
+mod macos {
+  pub(crate) mod driver;
+  pub(crate) mod observer;
+}
 #[cfg(windows)]
-mod win;
-
-impl IntoIterator for Formats {
-  type Item = Format;
-  type IntoIter = std::vec::IntoIter<Format>;
-
-  #[inline]
-  fn into_iter(self) -> Self::IntoIter {
-    self.data.into_iter()
-  }
+mod win {
+  mod driver;
+  mod observer;
 }
 
-impl<'a> IntoIterator for &'a Formats {
-  type Item = &'a Format;
-  type IntoIter = std::slice::Iter<'a, Format>;
-
-  #[inline]
-  fn into_iter(self) -> Self::IntoIter {
-    self.data.iter()
-  }
+pub(crate) trait Observer {
+  fn observe(&mut self, body_senders: Arc<BodySenders>);
 }
 
+/// The struct that is responsible for starting and stopping the Observer.
+#[derive(Debug)]
+pub(crate) struct Driver {
+  /// This is cloned and passed to the Observer threads to give them the interruption signal
+  pub(crate) stop: Arc<AtomicBool>,
+
+  /// This is the handle of the spawned Observer thread.
+  pub(crate) handle: Option<JoinHandle<()>>,
+}
+
+/// The context for the clipboard content
 #[derive(Clone, Copy)]
 pub struct ClipboardContext<'a> {
   formats: &'a Formats,
@@ -77,24 +82,28 @@ pub struct ClipboardContext<'a> {
 }
 
 impl ClipboardContext<'_> {
+  /// Returns the list of [`Format`]s currently available on the clipboard.
   #[must_use]
   #[inline]
   pub const fn formats(&self) -> &Formats {
     self.formats
   }
 
+  /// Checks if a particular format is currently present in the clipboard.
   #[must_use]
   #[inline]
   pub fn has_format(&self, name: &str) -> bool {
     self.formats.iter().any(|d| d.name.as_ref() == name)
   }
 
+  /// Attempts to extract a particular [`Format`] from the list of available formats.
   #[must_use]
   #[inline]
   pub fn get_format(&self, name: &str) -> Option<&Format> {
     self.formats.iter().find(|d| d.name.as_ref() == name)
   }
 
+  /// Attempts to read the content of a particular format as a 32 bit integer.
   #[must_use]
   #[inline]
   pub fn get_format_as_u32(&self, name: &str) -> Option<u32> {
@@ -103,6 +112,7 @@ impl ClipboardContext<'_> {
       .and_then(|bytes| Some(u32::from_ne_bytes(bytes.try_into().ok()?)))
   }
 
+  /// Attempts to read the raw data for a particular format.
   #[must_use]
   #[inline]
   pub fn get_format_data(&self, name: &str) -> Option<Vec<u8>> {
@@ -114,6 +124,11 @@ impl ClipboardContext<'_> {
   }
 }
 
+/// Receives the [`ClipboardContext`] and returns a boolean that indicates whether the content should
+/// be processed or not.
+///
+/// Can be useful to read particular formats like `ExcludeClipboardContentFromMonitorProcessing` that are
+/// placed in the clipboard by other applications.
 pub trait Gatekeeper: Send + Sync + 'static {
   fn check(&self, ctx: ClipboardContext) -> bool;
 }
@@ -135,49 +150,5 @@ impl Gatekeeper for DefaultGatekeeper {
   #[inline]
   fn check(&self, _: ClipboardContext) -> bool {
     true
-  }
-}
-
-#[derive(Debug, Clone)]
-pub struct Format {
-  pub(crate) name: Arc<str>,
-  #[cfg(not(target_os = "macos"))]
-  pub(crate) id: u32,
-  #[cfg(target_os = "macos")]
-  pub(crate) id: objc2::rc::Retained<objc2_foundation::NSString>,
-}
-
-impl Format {
-  #[must_use]
-  #[inline]
-  pub fn name(&self) -> &str {
-    &self.name
-  }
-}
-
-#[derive(Default, Debug)]
-pub struct Formats {
-  pub(crate) data: Vec<Format>,
-}
-
-impl Formats {
-  #[inline]
-  pub fn iter(&self) -> std::slice::Iter<'_, Format> {
-    self.data.iter()
-  }
-
-  #[cfg(not(target_os = "macos"))]
-  #[must_use]
-  #[inline]
-  pub(crate) fn contains_id(&self, id: u32) -> bool {
-    self.data.iter().any(|d| d.id == id)
-  }
-}
-
-impl FromIterator<Format> for Formats {
-  fn from_iter<T: IntoIterator<Item = Format>>(iter: T) -> Self {
-    Self {
-      data: iter.into_iter().collect(),
-    }
   }
 }

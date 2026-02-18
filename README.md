@@ -4,8 +4,8 @@ This crate can be used to subscribe to the system clipboard and read its content
 
 ## Features
 
-- **Leverages the Stream trait**
-    The listener implements `Stream`, which unlocks access to all implementations that have been built around this trait, such as throttling, debouncing and so on.
+- **Async architecture**
+    Wraps the synchronous clipboard polling logic with a listener that implements the [`Stream`](https://docs.rs/futures/latest/futures/prelude/trait.Stream.html) trait, which unlocks access to all implementations that have been built around this trait, such as throttling, debouncing and so on.
 
 - **Max size filter**
     The user can define a maximum allowed size for a clipboard item. This can be useful to avoid processing very large images or custom formats.
@@ -17,6 +17,9 @@ This crate can be used to subscribe to the system clipboard and read its content
     The listener supports any arbitrary custom format.
 
 - **Customizable polling interval**
+
+- **Gatekeeper pattern**
+    Listeners can optionally be set up with a struct or closure that can inspect the formats available on the clipboard and decide whether the current content of the clipboard should not be processed. This can be useful to read special formats like `ExcludeClipboardContentFromMonitorProcessing` that signal the presence of sensitive information on the clipboard.
 
 # Supported Formats
 
