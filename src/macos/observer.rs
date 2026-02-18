@@ -68,17 +68,17 @@ impl<G: Gatekeeper> OSXObserver<G> {
 
 impl<G: Gatekeeper> Observer for OSXObserver<G> {
   fn observe(&mut self, body_senders: Arc<BodySenders>) {
-    let mut last_count = self.get_change_count();
+    let mut last_count = unsafe { self.pasteboard.changeCount() };
 
     info!("Started monitoring the clipboard");
 
     while !self.stop_signal.load(Ordering::Relaxed) {
-      let change_count = self.get_change_count();
+      let change_count = unsafe { self.pasteboard.changeCount() };
 
       if change_count != last_count {
         last_count = change_count;
 
-        match self.get_clipboard_content() {
+        match self.poll_clipboard() {
           Ok(Some(content)) => body_senders.send_all(&Ok(Arc::new(content))),
           Err(e) => {
             warn!("{e}");
@@ -99,16 +99,14 @@ impl<G: Gatekeeper> OSXObserver<G> {
     unsafe {
       // 1. Get the NSArray of types
       // types() returns Option<Retained<NSArray<NSPasteboardType>>>
-      let types_array =
-        self
-          .pasteboard
-          .types()
-          .ok_or(ErrorWrapper::ReadError(ClipboardError::ReadError(
-            "Could not get types".to_string(),
-          )))?;
+      let types_array = self.pasteboard.types().ok_or_else(|| {
+        ErrorWrapper::ReadError(ClipboardError::ReadError(
+          "Failed to read the clipboard formats".to_string(),
+        ))
+      })?;
 
       // 2. Map NSArray -> Vec<Format>
-      let data: Vec<Format> = types_array
+      let formats: Formats = types_array
         .iter()
         .map(|ns_string| {
           // Convert NSString to Rust String
@@ -121,12 +119,8 @@ impl<G: Gatekeeper> OSXObserver<G> {
         })
         .collect();
 
-      Ok(Formats { data })
+      Ok(formats)
     }
-  }
-
-  fn get_change_count(&self) -> isize {
-    unsafe { self.pasteboard.changeCount() }
   }
 
   fn extract_files_list(
@@ -172,9 +166,15 @@ impl<G: Gatekeeper> OSXObserver<G> {
     });
 
     match files {
-      Some(files) if !files.is_empty() => Ok(Some(files)),
-      // Macos api returns an empty list if no matching objects
-      // were found. Theoretically impossible since the format is already in the list.
+      Some(files) => {
+        if files.is_empty() {
+          Err(ErrorWrapper::EmptyContent)
+        } else {
+          Ok(Some(files))
+        }
+      }
+      // Somehow the format was available but couldn't be extracted
+      // (can happen if the clipboard changed in the meantime)
       _ => Ok(None),
     }
   }
@@ -224,8 +224,7 @@ impl<G: Gatekeeper> OSXObserver<G> {
     }
 
     // XXX: We explicitly use `pasteboardItems` and not `stringForType` since the latter will concat
-    // multiple strings, if present, into one and return it instead of reading just the first which is `arboard`'s
-    // historical behavior.
+    // multiple strings, if present, into one and return it instead of reading just the first
     autoreleasepool(|_| {
       // If no pasteboard items are found, we trigger the early exit
       let contents =
@@ -246,10 +245,8 @@ impl<G: Gatekeeper> OSXObserver<G> {
   }
 
   // Reads the clipboard and extract the first kind of format available, following the priority list
-  fn extract_content(&self) -> Result<Option<Body>, ErrorWrapper> {
+  fn extract_clipboard_content(&self) -> Result<Option<Body>, ErrorWrapper> {
     autoreleasepool(|_| {
-      let max_size = self.max_size;
-
       let formats = self.get_available_formats()?;
 
       let ctx = ClipboardContext {
@@ -260,6 +257,8 @@ impl<G: Gatekeeper> OSXObserver<G> {
       if !self.gatekeeper.check(ctx) {
         return Err(ErrorWrapper::UserSkipped);
       }
+
+      let max_size = self.max_size;
 
       for format in self.custom_formats.iter() {
         // For custom formats, we check the size as well as the presence
@@ -303,9 +302,10 @@ impl<G: Gatekeeper> OSXObserver<G> {
     })
   }
 
-  // Tries to read the clipboard and unwraps the error, if one was encountered
-  fn get_clipboard_content(&self) -> Result<Option<Body>, ClipboardError> {
-    match self.extract_content() {
+  // Tries to read the clipboard and handles the result, which can be
+  // an early exit (for skipped/empty content), or an actual error
+  fn poll_clipboard(&self) -> Result<Option<Body>, ClipboardError> {
+    match self.extract_clipboard_content() {
       // Found content
       Ok(Some(content)) => Ok(Some(content)),
 
