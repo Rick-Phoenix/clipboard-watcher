@@ -1,3 +1,15 @@
+## [0.2.0] - 2026-02-18
+
+### ⛰️  Features
+
+- Implement gatekeeper to avoid processing sensitive info on clipboard
+
+### 🚜 Refactor
+
+- Remove unnecessary DropHandle abstraction
+- Use Driver struct only for initialization, inline data in main listener struct
+- Separate body_senders module
+- [**breaking**] Remove useless stream id getter
 ## [0.1.0] - 2025-11-13
 
 ### ⛰️  Features
@@ -83,3 +95,4 @@
 ### ⚙️ Miscellaneous Tasks
 
 - Reorder dependencies in cargo.toml
+- Release
