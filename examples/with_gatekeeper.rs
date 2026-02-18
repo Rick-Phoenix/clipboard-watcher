@@ -6,7 +6,7 @@ use log::Level;
 async fn main() {
   let mut event_listener = ClipboardEventListener::builder()
     .with_gatekeeper(|ctx| {
-      if let Some(can_include_flag) = ctx.get_u32("CanIncludeInClipboardHistory")
+      if let Some(can_include_flag) = ctx.get_format_as_u32("CanIncludeInClipboardHistory")
         && can_include_flag == 0
       {
         eprintln!("Detected `CanIncludeInClipboardHistory` being set to 0. Skipped processing");

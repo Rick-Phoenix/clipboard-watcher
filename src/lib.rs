@@ -97,7 +97,7 @@ impl ClipboardContext<'_> {
 
   #[must_use]
   #[inline]
-  pub fn get_u32(&self, name: &str) -> Option<u32> {
+  pub fn get_format_as_u32(&self, name: &str) -> Option<u32> {
     self
       .get_format_data(name)
       .and_then(|bytes| Some(u32::from_ne_bytes(bytes.try_into().ok()?)))

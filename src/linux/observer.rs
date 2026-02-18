@@ -209,7 +209,7 @@ impl<G: Gatekeeper> LinuxObserver<G> {
       if formats.contains_id(format.id) {
         let data = self
           .x11
-          .extract_clipboard_content(format.id, &formats, self.max_size)?;
+          .read_format_with_size_check(format.id, &formats, self.max_size)?;
 
         return Ok(Some(Body::new_custom(format.name.clone(), data)));
       }
@@ -219,9 +219,10 @@ impl<G: Gatekeeper> LinuxObserver<G> {
       let bytes =
         self
           .x11
-          .extract_clipboard_content(self.x11.atoms.PNG_MIME, &formats, self.max_size)?;
+          .read_format_with_size_check(self.x11.atoms.PNG_MIME, &formats, self.max_size)?;
 
-      let path = if let Ok(mut files) = self.extract_file_list(&formats)
+      let path = if formats.contains_id(self.x11.atoms.FILE_LIST)
+        && let Ok(mut files) = self.x11.extract_file_list()
         && files.len() == 1
       {
         Some(files.remove(0))
@@ -231,19 +232,21 @@ impl<G: Gatekeeper> LinuxObserver<G> {
 
       Ok(Some(Body::new_png(bytes, path)))
     } else if formats.contains_id(self.x11.atoms.FILE_LIST) {
-      let files = self.extract_file_list(&formats)?;
+      let files = self.x11.extract_file_list()?;
 
       Ok(Some(Body::new_file_list(files)))
     } else if formats.contains_id(self.x11.atoms.HTML) {
       let bytes = self
         .x11
-        .extract_clipboard_content(self.x11.atoms.HTML, &formats, None)?;
+        .request_and_read_property(self.x11.atoms.HTML, self.x11.atoms.DATA)?;
 
       let html = String::from_utf8_lossy(&bytes);
 
       Ok(Some(Body::new_html(html.into_owned())))
-    } else if let Some(format) = self.available_text_format(&formats) {
-      let bytes = self.x11.extract_clipboard_content(format, &formats, None)?;
+    } else if let Some(format) = self.x11.available_text_format(&formats) {
+      let bytes = self
+        .x11
+        .request_and_read_property(format, self.x11.atoms.DATA)?;
 
       let text = String::from_utf8_lossy(&bytes);
 
@@ -251,6 +254,78 @@ impl<G: Gatekeeper> LinuxObserver<G> {
     } else {
       Err(ErrorWrapper::ReadError(ClipboardError::NoMatchingFormat))
     }
+  }
+
+  fn get_available_formats(&mut self) -> Result<Formats, ErrorWrapper> {
+    let prop_reply = self
+      .x11
+      .request_and_read_property(self.x11.atoms.TARGETS, self.x11.atoms.METADATA)?;
+
+    let ignored_formats = [
+      self.x11.atoms.TIMESTAMP,
+      self.x11.atoms.MULTIPLE,
+      self.x11.atoms.TARGETS,
+      self.x11.atoms.SAVE_TARGETS,
+    ];
+
+    // Convert the Vec<u8> into a Vec<Atom>
+    let available_formats: Vec<Atom> = prop_reply
+      // Split in chunks of 4 bytes
+      .chunks_exact(4)
+      .map(|chunk| u32::from_ne_bytes(chunk.try_into().unwrap()))
+      .filter(|atom| !ignored_formats.contains(atom))
+      .collect();
+
+    self.resolve_atom_names(&available_formats)
+  }
+
+  fn resolve_atom_names(&mut self, atoms: &[Atom]) -> Result<Formats, ErrorWrapper> {
+    let mut formats: Vec<Format> = Vec::new();
+    let mut missing_atoms: Vec<Atom> = Vec::new();
+
+    for atom in atoms {
+      if let Some(name) = self.atoms_cache.get(atom) {
+        formats.push(Format {
+          id: *atom,
+          name: name.clone(),
+        });
+      } else {
+        missing_atoms.push(*atom);
+      }
+    }
+
+    let mut cookies = Vec::with_capacity(missing_atoms.len());
+
+    // Send all requests at once
+    // This is non-blocking. It just fills the outgoing buffer.
+    for atom in missing_atoms {
+      // .get_atom_name() returns a Cookie immediately
+      let Ok(cookie) = self.x11.conn.get_atom_name(atom) else {
+        continue;
+      };
+
+      cookies.push((atom, cookie));
+    }
+
+    // Collect all replies
+    // The X Server processes requests in order.
+    for (atom, cookie) in cookies {
+      // .reply() blocks until THIS specific answer arrives.
+      // Since we sent them all first, the network latency is amortized.
+      let Ok(reply) = cookie.reply() else {
+        continue;
+      };
+
+      // X11 returns raw bytes (usually ISO-8859-1 or UTF-8 depending on age)
+      // String::from_utf8_lossy is usually safe enough for clipboard atom names
+      let name: Arc<str> = String::from_utf8_lossy(&reply.name).into_owned().into();
+
+      self.atoms_cache.insert(atom, name.clone());
+
+      formats.push(Format { id: atom, name });
+    }
+
+    Ok(Formats { data: formats })
   }
 }
 
@@ -298,100 +373,7 @@ fn to_read_error<T: Display>(error: T) -> ErrorWrapper {
   ErrorWrapper::ReadError(ClipboardError::ReadError(error.to_string()))
 }
 
-impl<G: Gatekeeper> LinuxObserver<G> {
-  fn resolve_atom_names(&mut self, atoms: &[Atom]) -> Result<Formats, ErrorWrapper> {
-    let mut formats: Vec<Format> = Vec::new();
-    let mut missing_atoms: Vec<Atom> = Vec::new();
-
-    for atom in atoms {
-      if let Some(name) = self.atoms_cache.get(atom) {
-        formats.push(Format {
-          id: *atom,
-          name: name.clone(),
-        });
-      } else {
-        missing_atoms.push(*atom);
-      }
-    }
-
-    // Send all requests at once
-    // This is non-blocking. It just fills the outgoing buffer.
-    let mut cookies = Vec::with_capacity(missing_atoms.len());
-
-    for atom in missing_atoms {
-      // .get_atom_name() returns a Cookie immediately
-      let Ok(cookie) = self.x11.conn.get_atom_name(atom) else {
-        continue;
-      };
-
-      cookies.push((atom, cookie));
-    }
-
-    // Collect all replies
-    // The X Server processes requests in order.
-    for (atom, cookie) in cookies {
-      // .reply() blocks until THIS specific answer arrives.
-      // Since we sent them all first, the network latency is amortized.
-      let Ok(reply) = cookie.reply() else {
-        continue;
-      };
-
-      // X11 returns raw bytes (usually ISO-8859-1 or UTF-8 depending on age)
-      // String::from_utf8_lossy is usually safe enough for clipboard atom names
-      let name: Arc<str> = String::from_utf8_lossy(&reply.name).as_ref().into();
-
-      self.atoms_cache.insert(atom, name.clone());
-
-      formats.push(Format { id: atom, name });
-    }
-
-    Ok(Formats { data: formats })
-  }
-
-  fn get_available_formats(&mut self) -> Result<Formats, ErrorWrapper> {
-    let prop_reply = self
-      .x11
-      .request_and_read_property(self.x11.atoms.TARGETS, self.x11.atoms.METADATA)?;
-
-    let ignored_formats = [
-      self.x11.atoms.TIMESTAMP,
-      self.x11.atoms.MULTIPLE,
-      self.x11.atoms.TARGETS,
-      self.x11.atoms.SAVE_TARGETS,
-    ];
-
-    // Convert the Vec<u8> into a Vec<Atom>
-    let available_formats: Vec<Atom> = prop_reply
-      // Split in chunks of 4 bytes
-      .chunks_exact(4)
-      .map(|chunk| u32::from_ne_bytes(chunk.try_into().unwrap()))
-      .filter(|atom| !ignored_formats.contains(atom))
-      .collect();
-
-    self.resolve_atom_names(&available_formats)
-  }
-
-  fn extract_file_list(&self, available_formats: &Formats) -> Result<Vec<PathBuf>, ErrorWrapper> {
-    let raw_data =
-      self
-        .x11
-        .extract_clipboard_content(self.x11.atoms.FILE_LIST, available_formats, None)?;
-
-    Ok(paths_from_uri_list(&raw_data))
-  }
-
-  // Gets the first available plain text format
-  fn available_text_format(&self, available_formats: &Formats) -> Option<Atom> {
-    [
-      self.x11.atoms.UTF8_MIME_0,
-      self.x11.atoms.UTF8_MIME_1,
-      self.x11.atoms.UTF8_STRING,
-    ]
-    .into_iter()
-    .find(|&format| available_formats.contains_id(format))
-  }
-}
-
+// Needs to be a pure fn because it's used in the constructor
 fn register_custom_formats(
   conn: &RustConnection,
   format_names: Vec<Arc<str>>,
@@ -419,6 +401,24 @@ fn register_custom_formats(
 }
 
 impl X11Context {
+  fn extract_file_list(&self) -> Result<Vec<PathBuf>, ErrorWrapper> {
+    let raw_data = self.request_and_read_property(self.atoms.FILE_LIST, self.atoms.DATA)?;
+
+    Ok(paths_from_uri_list(&raw_data))
+  }
+
+  // Gets the first available plain text format
+  fn available_text_format(&self, available_formats: &Formats) -> Option<Atom> {
+    [
+      self.atoms.UTF8_MIME_0,
+      self.atoms.UTF8_MIME_1,
+      self.atoms.UTF8_STRING,
+    ]
+    .into_iter()
+    .find(|&format| available_formats.contains_id(format))
+  }
+
+  // Reads the actual data of a property
   fn read_property_data(&self, property_atom: Atom) -> Result<Vec<u8>, ErrorWrapper> {
     let start_time = Instant::now();
     let mut buffer = Vec::new();
@@ -480,8 +480,8 @@ impl X11Context {
     Ok(buffer)
   }
 
-  // Attempts to extract a specific format from the clipboard
-  fn extract_clipboard_content(
+  // Attempts to extract a specific format from the clipboard while checking for the max size
+  fn read_format_with_size_check(
     &self,
     format_to_read: Atom,
     available_formats: &Formats,

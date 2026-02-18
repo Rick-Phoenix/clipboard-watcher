@@ -56,7 +56,7 @@ mod win {
   async fn gatekeeper_win_2() {
     let mut event_listener = ClipboardEventListener::builder()
       .with_gatekeeper(|ctx| {
-        if let Some(can_include_flag) = ctx.get_u32("CanIncludeInClipboardHistory")
+        if let Some(can_include_flag) = ctx.get_format_as_u32("CanIncludeInClipboardHistory")
           && can_include_flag == 0
         {
           return false;
@@ -177,7 +177,7 @@ mod linux {
 
     let mut event_listener = ClipboardEventListener::builder()
       .with_gatekeeper(|ctx| {
-        if let Some(can_include_flag) = ctx.get_u32("CanIncludeInClipboardHistory")
+        if let Some(can_include_flag) = ctx.get_format_as_u32("CanIncludeInClipboardHistory")
           && can_include_flag == 0
         {
           return false;
@@ -398,7 +398,7 @@ mod macos {
 
     let mut event_listener = ClipboardEventListener::builder()
       .with_gatekeeper(|ctx| {
-        if let Some(can_include_flag) = ctx.get_u32("CanIncludeInClipboardHistory")
+        if let Some(can_include_flag) = ctx.get_format_as_u32("CanIncludeInClipboardHistory")
           && can_include_flag == 0
         {
           return false;
