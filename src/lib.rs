@@ -17,7 +17,7 @@ use std::{
   pin::Pin,
   task::{Context, Poll},
   thread::JoinHandle,
-  time::{Duration, Instant},
+  time::Duration,
 };
 
 mod body;

@@ -11,13 +11,11 @@ impl Driver {
     max_bytes: Option<u32>,
     gatekeeper: G,
   ) -> Result<Self, InitializationError> {
-    use std::sync::mpsc;
-
     let stop = Arc::new(AtomicBool::new(false));
 
     let stop_cl = stop.clone();
 
-    let (init_tx, init_rx) = mpsc::sync_channel(0);
+    let (init_tx, init_rx) = sync_channel(0);
 
     // spawn OS thread
     // observe clipboard change event and send item

@@ -1,8 +1,8 @@
-use std::{convert::Infallible, fmt::Display, sync::Arc};
+use std::convert::Infallible;
 
 use thiserror::Error;
 
-use crate::Body;
+use crate::*;
 
 pub(crate) trait WithContext<T> {
   fn context(self, msg: &str) -> Result<T, String>;

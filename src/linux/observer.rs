@@ -1,5 +1,6 @@
 use crate::*;
 use percent_encoding::percent_decode;
+use std::time::Instant;
 use x11rb::{
   CURRENT_TIME,
   connection::Connection,
@@ -176,7 +177,7 @@ impl<G: Gatekeeper> Observer for LinuxObserver<G> {
 impl<G: Gatekeeper> LinuxObserver<G> {
   // Calls the extractor and unwraps the error
   fn poll_clipboard(&mut self) -> Result<Option<Body>, ClipboardError> {
-    match self.get_clipboard_content() {
+    match self.extract_clipboard_content() {
       Ok(Some(content)) => Ok(Some(content)),
 
       // No content or non-fatal errors
@@ -193,7 +194,7 @@ impl<G: Gatekeeper> LinuxObserver<G> {
 
   // Tries to extract the contents of the clipboard, and returns an error
   // wrapper that can indicate a normal early exit or an actual error
-  fn get_clipboard_content(&mut self) -> Result<Option<Body>, ErrorWrapper> {
+  fn extract_clipboard_content(&mut self) -> Result<Option<Body>, ErrorWrapper> {
     let formats = self.get_available_formats()?;
 
     let ctx = ClipboardContext {

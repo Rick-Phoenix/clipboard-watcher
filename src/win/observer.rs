@@ -29,103 +29,118 @@ impl ClipboardContext<'_> {
 }
 
 impl Formats {
-  fn can_access_format(
-    &self,
-    format_id: u32,
-    max_bytes: Option<u32>,
-  ) -> Result<bool, ErrorWrapper> {
-    match self.contains_id(format_id) {
-      true => {
-        match max_bytes {
-          Some(max) => match clipboard_win::size(format_id) {
-            Some(size) => {
-              if max as usize >= size.get() {
-                Ok(true)
-              } else if size.get() == 0 {
-                Err(ErrorWrapper::EmptyContent)
-              } else {
-                debug!(
-                  "Found content with {} size, beyond maximum allowed size. Skipping it...",
-                  HumanBytes(size.get())
-                );
-                // Invalid size, we use an error to exit early later on
-                Err(ErrorWrapper::SizeTooLarge)
-              }
-            }
-
-            // Should be impossible given that the format
-            // is already in the list, but we should trigger
-            // an early exit regardless, as something went wrong
-            None => Err(ErrorWrapper::EmptyContent),
-          },
-          None => Ok(true),
-        }
-      }
-
-      // Format was not available at all
-      false => Ok(false),
-    }
-  }
-
-  // Attempts to extract a specific format
+  // We return None if the format is simply not present, and
+  // use errors to early exit or for actual errors
   fn extract_clipboard_format(
     &self,
     format_id: u32,
     max_bytes: Option<u32>,
   ) -> Result<Option<Vec<u8>>, ErrorWrapper> {
-    match self.can_access_format(format_id, max_bytes)? {
-      true => {
-        let data = clipboard_win::get(formats::RawData(format_id))
-          .map_err(|e| ClipboardError::ReadError(e.to_string()))?;
+    if self.contains_id(format_id) {
+      if let Some(max) = max_bytes {
+        match clipboard_win::size(format_id) {
+          Some(size) => {
+            if (max as usize) < size.get() {
+              debug!(
+                "Found content with {} size, beyond maximum allowed size. Skipping it...",
+                HumanBytes(size.get())
+              );
+              // Invalid size, we use an error to exit early later on
+              return Err(ErrorWrapper::SizeTooLarge);
+            }
+          }
 
-        if data.is_empty() {
-          Err(ErrorWrapper::EmptyContent)
-        } else {
-          Ok(Some(data))
-        }
+          // Should be impossible given that the format
+          // is already in the list, but we should trigger
+          // an early exit regardless, as something went wrong
+          None => return Err(ErrorWrapper::EmptyContent),
+        };
       }
-      false => Ok(None),
-    }
-  }
 
-  fn extract_png(
-    &self,
-    png_format: u32,
-    max_size: Option<u32>,
-  ) -> Result<Option<Vec<u8>>, ErrorWrapper> {
-    self.extract_clipboard_format(png_format, max_size)
-  }
+      let data = clipboard_win::get(formats::RawData(format_id))
+        .map_err(|e| ClipboardError::ReadError(e.to_string()))?;
 
-  fn extract_raw_image(&self, max_size: Option<u32>) -> Result<Option<DynamicImage>, ErrorWrapper> {
-    if let Some(bytes) = self.extract_clipboard_format(formats::CF_DIBV5, max_size)? {
-      let image = load_dib(&bytes)?;
-
-      Ok(Some(image))
-    } else if let Some(bytes) = self.extract_clipboard_format(formats::CF_DIB, max_size)? {
-      let image = load_dib(&bytes)?;
-
-      Ok(Some(image))
+      if data.is_empty() {
+        Err(ErrorWrapper::EmptyContent)
+      } else {
+        Ok(Some(data))
+      }
     } else {
+      // Format was not available at all
       Ok(None)
     }
   }
 
+  fn extract_raw_image(&self, max_size: Option<u32>) -> Result<Option<DynamicImage>, ErrorWrapper> {
+    let image_bytes =
+      if let Some(bytes) = self.extract_clipboard_format(formats::CF_DIBV5, max_size)? {
+        bytes
+      } else if let Some(bytes) = self.extract_clipboard_format(formats::CF_DIB, max_size)? {
+        bytes
+      } else {
+        return Ok(None);
+      };
+
+    let image = load_dib(&image_bytes)?;
+    Ok(Some(image))
+  }
+
   fn extract_files_list(&self) -> Result<Option<Vec<PathBuf>>, ErrorWrapper> {
-    match self.contains_id(formats::FileList.into()) {
-      true => {
-        let mut files_list: Vec<PathBuf> = Vec::new();
-        if let Ok(_num_files) = formats::FileList.read_clipboard(&mut files_list) {
-          if files_list.is_empty() {
-            Err(ErrorWrapper::EmptyContent)
-          } else {
-            Ok(Some(files_list))
-          }
+    if self.contains_id(formats::FileList.into()) {
+      let mut files_list: Vec<PathBuf> = Vec::new();
+      if let Ok(_num_files) = formats::FileList.read_clipboard(&mut files_list) {
+        if files_list.is_empty() {
+          Err(ErrorWrapper::EmptyContent)
         } else {
-          // Technically impossible since it's already in the list
-          Ok(None)
+          Ok(Some(files_list))
+        }
+      } else {
+        // Can only happen if the clipboard changed in the meantime
+        Ok(None)
+      }
+    } else {
+      Ok(None)
+    }
+  }
+}
+
+impl<G: Gatekeeper> Observer for WinObserver<G> {
+  fn observe(&mut self, body_senders: Arc<BodySenders>) {
+    info!("Started monitoring the clipboard");
+
+    while !self.stop.load(Ordering::Relaxed) {
+      let monitor = &mut self.monitor;
+
+      match monitor.try_recv() {
+        Ok(true) => {
+          match self.poll_clipboard() {
+            Ok(Some(body)) => {
+              body_senders.send_all(&Ok(Arc::new(body)));
+            }
+            Err(e) => {
+              warn!("{e}");
+
+              body_senders.send_all(&Err(e));
+            }
+            // Found content but ignored it (empty or too large)
+            Ok(None) => {}
+          };
+        }
+        Ok(false) => {
+          // No event, waiting
+          std::thread::sleep(self.interval);
+        }
+        Err(e) => {
+          let error = ClipboardError::MonitorFailed(e.to_string());
+
+          error!("{error}");
+
+          body_senders.send_all(&Err(error));
+
+          error!("Fatal error, terminating clipboard watcher");
+          break;
         }
       }
-      false => Ok(None),
     }
   }
 }
@@ -172,27 +187,26 @@ impl<G: Gatekeeper> WinObserver<G> {
   }
 
   // Reads the clipboard and extracts the first matching format, following the priority list
+  // Here we return None if we weren't able to read any format
   fn extract_clipboard_content(&mut self) -> Result<Option<Body>, ErrorWrapper> {
-    let formats = Formats {
-      data: EnumFormats::new()
-        .filter_map(|id| {
-          if let Some(name) = self.formats_cache.get(&id) {
-            Some(Format {
-              name: name.clone(),
-              id,
-            })
-          } else {
-            format_name_big(id).map(|name| {
-              let name: Arc<str> = name.into();
+    let formats: Formats = EnumFormats::new()
+      .filter_map(|id| {
+        if let Some(name) = self.formats_cache.get(&id) {
+          Some(Format {
+            name: name.clone(),
+            id,
+          })
+        } else {
+          format_name_big(id).map(|name| {
+            let name: Arc<str> = name.into();
 
-              self.formats_cache.insert(id, name.clone());
+            self.formats_cache.insert(id, name.clone());
 
-              Format { name, id }
-            })
-          }
-        })
-        .collect(),
-    };
+            Format { name, id }
+          })
+        }
+      })
+      .collect();
 
     let ctx = ClipboardContext { formats: &formats };
 
@@ -208,7 +222,7 @@ impl<G: Gatekeeper> WinObserver<G> {
       }
     }
 
-    if let Some(png_bytes) = formats.extract_png(self.png_format, max_size)? {
+    if let Some(png_bytes) = formats.extract_clipboard_format(self.png_format, max_size)? {
       // Extract the image path if we have a list of files with a single item
       let image_path = formats
         .extract_files_list()?
@@ -241,8 +255,8 @@ impl<G: Gatekeeper> WinObserver<G> {
     }
   }
 
-  // Calls the extractor and unwraps the error, if one was encountered
-  fn get_clipboard_content(&mut self) -> Result<Option<Body>, ClipboardError> {
+  // Opens the clipboard and calls the extractor, then handles the result
+  fn poll_clipboard(&mut self) -> Result<Option<Body>, ClipboardError> {
     let _clipboard =
       Clipboard::new_attempts(10).map_err(|e| ClipboardError::ReadError(e.to_string()))?;
 
@@ -267,47 +281,6 @@ impl<G: Gatekeeper> WinObserver<G> {
   }
 }
 
-impl<G: Gatekeeper> Observer for WinObserver<G> {
-  fn observe(&mut self, body_senders: Arc<BodySenders>) {
-    info!("Started monitoring the clipboard");
-
-    while !self.stop.load(Ordering::Relaxed) {
-      let monitor = &mut self.monitor;
-
-      match monitor.try_recv() {
-        Ok(true) => {
-          match self.get_clipboard_content() {
-            Ok(Some(body)) => {
-              body_senders.send_all(&Ok(Arc::new(body)));
-            }
-            Err(e) => {
-              warn!("{e}");
-
-              body_senders.send_all(&Err(e));
-            }
-            // Found content but ignored it (empty or too large)
-            Ok(None) => {}
-          };
-        }
-        Ok(false) => {
-          // No event, waiting
-          std::thread::sleep(self.interval);
-        }
-        Err(e) => {
-          let error = ClipboardError::MonitorFailed(e.to_string());
-
-          error!("{error}");
-
-          body_senders.send_all(&Err(error));
-
-          error!("Fatal error, terminating clipboard watcher");
-          break;
-        }
-      }
-    }
-  }
-}
-
 // We use a result rather than a simple boolean to trigger early exits and reduce verbosity
 const fn content_is_not_empty(content: &str) -> Result<bool, ErrorWrapper> {
   if content.is_empty() {
@@ -316,8 +289,6 @@ const fn content_is_not_empty(content: &str) -> Result<bool, ErrorWrapper> {
     Ok(true)
   }
 }
-
-// We use the error wrapper to trigger early exit in case a format is present but not valid, to avoid checking other formats needlessly
 
 fn load_dib(bytes: &[u8]) -> Result<DynamicImage, ClipboardError> {
   use std::io::Cursor;
