@@ -5,8 +5,8 @@ edition = "2024"
 readme = true
 repository = "https://github.com/Rick-Phoenix/clipboard-watcher"
 license = "Apache-2.0"
-description = "Customizable listener for the system clipboard that leverages the Stream trait"
-keywords = ["clipboard", "stream", "macos", "windows", "linux"]
+description = "Async listener for the system clipboard that leverages the Stream trait"
+keywords = ["clipboard", "async", "macos", "windows", "linux"]
 
 [package.metadata.release]
 allow-branch = ["main"]
