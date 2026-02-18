@@ -4,24 +4,26 @@ This crate can be used to subscribe to the system clipboard and read its content
 
 ## Features
 
-- **Async architecture**
-    Wraps the synchronous clipboard polling logic with a listener that implements the [`Stream`](https://docs.rs/futures/latest/futures/prelude/trait.Stream.html) trait, which unlocks access to all implementations that have been built around this trait, such as throttling, debouncing and so on.
+### **Async architecture**
 
-- **Max size filter**
-    The user can define a maximum allowed size for a clipboard item. This can be useful to avoid processing very large images or custom formats.
+Wraps the synchronous clipboard polling logic with a listener that implements the [`Stream`](https://docs.rs/futures/latest/futures/prelude/trait.Stream.html) trait, which unlocks access to all implementations that have been built around this trait, such as throttling, debouncing and so on.
+
+### **Max size filter**
+
+The user can define a maximum allowed size for a clipboard item. This can be useful to avoid processing very large images or custom formats.
     The logic for checking an item's size vary from platform to platform.
     On windows, the size can always be checked without processing the data immediately. On linux, this is also possible in the majority of cases (as long as the clipboard owner supports requests for the `LENGTH` property).
     On macos, there isn't a way of doing this in a cheap way (as far as I know), so the data will be loaded first and then its size will be inspected.
 
-- **Custom formats**
-    The listener supports any arbitrary custom format.
+### **Custom formats**
 
-- **Customizable polling interval**
+Can read any arbitrary clipboard format.
 
-- **Gatekeeper pattern**
-    Listeners can optionally be set up with a struct or closure that can inspect the formats available on the clipboard and decide whether the current content of the clipboard should not be processed. This can be useful to read special formats like `ExcludeClipboardContentFromMonitorProcessing` that signal the presence of sensitive information on the clipboard.
+### **Gatekeeper pattern**
 
-# Supported Formats
+Listeners can optionally be set up with a struct or closure that can inspect the formats available on the clipboard and decide whether the current content of the clipboard should not be processed. This can be useful to read special formats like `ExcludeClipboardContentFromMonitorProcessing` that signal the presence of sensitive information on the clipboard.
+
+## Supported Formats
 
 - HTML
 - Text
@@ -30,7 +32,7 @@ This crate can be used to subscribe to the system clipboard and read its content
 - Other Images (normalized to raw rgb8)
 - Custom formats
 
-# Example
+## Example
 
 You can run this example with cargo: `cargo run --example stream`
 
@@ -83,7 +85,7 @@ async fn main() {
 }
 ```
 
-# Platforms
+## Platforms
 
 - Windows
 - Macos
