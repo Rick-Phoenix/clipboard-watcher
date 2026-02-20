@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 use clipboard_win::{
   Clipboard, EnumFormats, Getter, Monitor,
   formats::{self, Html},
@@ -109,23 +111,36 @@ impl<G: Gatekeeper> Observer for WinObserver<G> {
   fn observe(&mut self, body_senders: Arc<BodySenders>) {
     info!("Started monitoring the clipboard");
 
+    let mut last_read = Instant::now();
+
     while !self.stop.load(Ordering::Relaxed) {
       let monitor = &mut self.monitor;
 
       match monitor.try_recv() {
         Ok(true) => {
-          match self.poll_clipboard() {
-            Ok(Some(body)) => {
-              body_senders.send_all(&Ok(Arc::new(body)));
-            }
-            Err(e) => {
-              warn!("{e}");
+          let now = Instant::now();
 
-              body_senders.send_all(&Err(e));
-            }
-            // Found content but ignored it (empty or too large)
-            Ok(None) => {}
-          };
+          let time_since_last = now.duration_since(last_read);
+
+          // Necessary on windows since it has random double-fire events sometimes
+          if time_since_last > Duration::from_millis(50) {
+            last_read = now;
+
+            match self.poll_clipboard() {
+              Ok(Some(body)) => {
+                body_senders.send_all(&Ok(Arc::new(body)));
+              }
+              Err(e) => {
+                warn!("{e}");
+
+                body_senders.send_all(&Err(e));
+              }
+              // Found content but ignored it (empty or too large)
+              Ok(None) => {}
+            };
+          } else {
+            debug!("Debouncing rapid Windows event");
+          }
         }
         Ok(false) => {
           // No event, waiting
