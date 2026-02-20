@@ -1,3 +1,12 @@
+## [0.2.1] - 2026-02-20
+
+### 🐛 Bug Fixes
+
+- Implement tiny debouncer on windows to avoid double fires
+
+### ⚙️ Miscellaneous Tasks
+
+- Updated deps
 ## [0.2.0] - 2026-02-18
 
 ### ⛰️  Features
